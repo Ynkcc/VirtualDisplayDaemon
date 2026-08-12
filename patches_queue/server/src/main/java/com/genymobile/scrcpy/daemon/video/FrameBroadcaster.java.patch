@@ -1,9 +1,8 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..c15c40fc
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,283 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -28,38 +27,6 @@ index 00000000..c15c40fc
 +import java.util.Map;
 +import java.util.concurrent.atomic.AtomicBoolean;
 +
-+/**
-+ * The shared video source for one {@code displayId}: a single
-+ * {@link SurfaceEncoder} + {@link SurfaceCapture} bound to the virtual
-+ * display's surface, fanning encoded frames out to N {@link VideoSubscriber}s.
-+ *
-+ * <p>This is Layer 2 of refs/13 §5 — "encode once, distribute to many". With
-+ * this class, N clients watching the same displayId share one encoder instead
-+ * of each spinning up their own. It also fixes the structural single-client
-+ * bug: {@code VirtualDisplay.setSurface()} is called <em>once</em> (with the
-+ * shared encoder's input surface) instead of once per client (which would
-+ * silently overwrite and break earlier clients).
-+ *
-+ * <p>Lifecycle (mirrors {@code VirtualDisplayRegistry}'s refcount model):
-+ * <ul>
-+ *   <li>Created lazily by {@link FrameBroadcasterRegistry} on the first
-+ *       {@code acquireSubscriber} for a displayId. The first subscriber's
-+ *       {@code CONFIGURE_SESSION} options are baked into the shared encoder
-+ *       (A1).</li>
-+ *   <li>Each subsequent subscriber is attached via {@link #subscribe} which
-+ *       replays the cached stream header + session meta + CSD and requests an
-+ *       IDR so the new client can decode immediately (refs/13 §4C, A2).</li>
-+ *   <li>When the last subscriber leaves, the registry calls {@link #shutdown}:
-+ *       stop the encoder, release the capture, restore the VD's fallback
-+ *       surface. The VD itself is <em>not</em> destroyed — its lifetime is
-+ *       owned by {@code VirtualDisplayRegistry} (refs/13 §7, A5).</li>
-+ * </ul>
-+ *
-+ * <p>Threading: {@link FrameSink} methods ({@code writeVideoHeader} /
-+ * {@code writeSessionMeta} / {@code writePacket}) are invoked on the single
-+ * encode thread. {@code subscribe} / {@code unsubscribe} are invoked on the
-+ * negotiation handler thread. Both serialize on {@link #lock}.
-+ */
 +final class FrameBroadcaster implements FrameSink {
 +
 +    private final int displayId;
@@ -70,17 +37,12 @@ index 00000000..c15c40fc
 +
 +    private final Object lock = new Object();
 +    private final List<VideoSubscriber> subscribers = new ArrayList<>();
-+    // sessionId → subscriber, for O(1) lookup on releaseSession (A9).
 +    private final Map<Integer, VideoSubscriber> subscribersBySession = new HashMap<>();
 +
-+    // Cached for late-joiner replay (refs/13 §4C, A2). Written on the encode
-+    // thread, read on subscribe() — both under `lock`.
 +    private Frame cachedHeader;
 +    private Frame cachedMeta;
 +    private Frame cachedConfigPacket;
 +
-+    // Set in create() after the pipeline is built. Not final because of the
-+    // chicken-and-egg: the encoder needs `this` (as FrameSink) at construction.
 +    private SurfaceCapture surfaceCapture;
 +    private SurfaceEncoder surfaceEncoder;
 +
@@ -96,18 +58,6 @@ index 00000000..c15c40fc
 +        this.sendFrameMeta = options.getSendFrameMeta();
 +    }
 +
-+    /**
-+     * Build the shared capture+encoder pipeline with {@code this} as the
-+     * encoder's {@link FrameSink}, then start the encode thread.
-+     *
-+     * @param baseArgs  per-session scrubbed scrcpy args (display_id will be rewritten)
-+     * @param options   per-session options (codec / bitrate / meta flags); baked into the shared encoder
-+     * @param controller the first subscriber's controller (used as
-+     *                   {@code VirtualDisplayListener}); may be {@code null}
-+     *                   if the control socket hasn't bound yet — a no-op
-+     *                   listener is used (single-client input mapping is
-+     *                   preserved; multi-client input mapping is a later step)
-+     */
 +    static FrameBroadcaster create(int displayId, String[] baseArgs, Options options,
 +                                   DisplaySurfaceBroker broker, Controller controller) throws Exception {
 +        FrameBroadcaster b = new FrameBroadcaster(displayId, broker, options);
@@ -144,11 +94,6 @@ index 00000000..c15c40fc
 +        encodeThread.start();
 +    }
 +
-+    /**
-+     * Attach a new client subscriber. Replays the cached stream header, session
-+     * meta and CSD so the client can initialize its decoder, then requests an
-+     * IDR for a promptly-decodable keyframe (refs/13 §4C, A2).
-+     */
 +    VideoSubscriber subscribe(int sessionId, FileDescriptor videoFd) {
 +        Streamer streamer = new Streamer(videoFd, codec, sendStreamMeta, sendFrameMeta);
 +        VideoSubscriber sub = new VideoSubscriber(sessionId, streamer);
@@ -156,12 +101,15 @@ index 00000000..c15c40fc
 +            subscribers.add(sub);
 +            subscribersBySession.put(sessionId, sub);
 +            if (cachedHeader != null) {
++                cachedHeader.retain();
 +                sub.deliver(cachedHeader);
 +            }
 +            if (cachedMeta != null) {
++                cachedMeta.retain();
 +                sub.deliver(cachedMeta);
 +            }
 +            if (cachedConfigPacket != null) {
++                cachedConfigPacket.retain();
 +                sub.deliver(cachedConfigPacket);
 +            }
 +        }
@@ -187,13 +135,6 @@ index 00000000..c15c40fc
 +                + " removed (count=" + subscriberCount() + ")");
 +    }
 +
-+    /**
-+     * Detach the subscriber belonging to {@code sessionId}, if any. Used by the
-+     * registry's {@code releaseSession} safety-net cleanup.
-+     *
-+     * @return the subscriber count after removal (0 signals the registry to shut
-+     *         this broadcaster down)
-+     */
 +    int unsubscribeBySession(int sessionId) {
 +        VideoSubscriber sub;
 +        synchronized (lock) {
@@ -211,11 +152,6 @@ index 00000000..c15c40fc
 +        }
 +    }
 +
-+    /**
-+     * Kick the shared encoder pipeline (e.g. after a VD resize) so it rebuilds
-+     * at the new dimensions. All subscribers receive a fresh session meta from
-+     * the encoder's reset path.
-+     */
 +    void kick(int resetReasons) {
 +        if (surfaceCapture != null) {
 +            CaptureControl cc = surfaceCapture.getCaptureControl();
@@ -227,12 +163,6 @@ index 00000000..c15c40fc
 +        }
 +    }
 +
-+    /**
-+     * Tear down the shared encoder + capture and restore the VD's fallback
-+     * surface. Does NOT destroy the VD (its lifetime is managed by
-+     * {@code VirtualDisplayRegistry}). Called by the registry when the last
-+     * subscriber leaves (refs/13 §7, A5).
-+     */
 +    void shutdown() {
 +        if (!shutdown.compareAndSet(false, true)) {
 +            return;
@@ -251,9 +181,6 @@ index 00000000..c15c40fc
 +        if (surfaceCapture != null) {
 +            surfaceCapture.release();
 +        }
-+        // Restore the VD's ImageReader fallback surface so the virtual display
-+        // keeps rendering into the ImageReader instead of the (now-released)
-+        // encoder input surface. This is the "lossless recovery" guarantee.
 +        if (surfaceBroker != null) {
 +            try {
 +                surfaceBroker.restore(displayId);
@@ -262,6 +189,18 @@ index 00000000..c15c40fc
 +            }
 +        }
 +        synchronized (lock) {
++            if (cachedHeader != null) {
++                cachedHeader.release();
++                cachedHeader = null;
++            }
++            if (cachedMeta != null) {
++                cachedMeta.release();
++                cachedMeta = null;
++            }
++            if (cachedConfigPacket != null) {
++                cachedConfigPacket.release();
++                cachedConfigPacket = null;
++            }
 +            for (VideoSubscriber sub : subscribers) {
 +                sub.close();
 +            }
@@ -270,13 +209,15 @@ index 00000000..c15c40fc
 +        }
 +    }
 +
-+    // ----- FrameSink implementation (called from the encode thread) -----
-+
 +    @Override
 +    public void writeVideoHeader() throws IOException {
 +        Frame f = Frame.header();
 +        synchronized (lock) {
++            if (cachedHeader != null) {
++                cachedHeader.release();
++            }
 +            cachedHeader = f;
++            f.retain();
 +            fanOut(f);
 +        }
 +    }
@@ -285,7 +226,11 @@ index 00000000..c15c40fc
 +    public void writeSessionMeta(int width, int height, boolean isClientResize) throws IOException {
 +        Frame f = Frame.meta(width, height, isClientResize);
 +        synchronized (lock) {
++            if (cachedMeta != null) {
++                cachedMeta.release();
++            }
 +            cachedMeta = f;
++            f.retain();
 +            fanOut(f);
 +        }
 +    }
@@ -295,9 +240,11 @@ index 00000000..c15c40fc
 +        Frame f = Frame.packet(buffer, pts, config, keyFrame);
 +        synchronized (lock) {
 +            if (config) {
-+                // Cache the latest CSD so a subscriber joining later can init
-+                // its decoder before the next keyframe (refs/13 §4C, A2).
++                if (cachedConfigPacket != null) {
++                    cachedConfigPacket.release();
++                }
 +                cachedConfigPacket = f;
++                f.retain();
 +            }
 +            fanOut(f);
 +        }
@@ -318,12 +265,6 @@ index 00000000..c15c40fc
 +        return sendFrameMeta;
 +    }
 +
-+    /**
-+     * Deliver a frame to every live subscriber and reap dead ones. Must be
-+     * called holding {@link #lock}. {@code deliver} is non-blocking (bounded
-+     * queue offer + local eviction), so the encode thread never stalls on a
-+     * slow subscriber (refs/13 §3, A3).
-+     */
 +    private void fanOut(Frame f) {
 +        Iterator<VideoSubscriber> it = subscribers.iterator();
 +        while (it.hasNext()) {
@@ -335,6 +276,7 @@ index 00000000..c15c40fc
 +                sub.close();
 +                continue;
 +            }
++            f.retain();
 +            sub.deliver(f);
 +            if (!sub.isAlive()) {
 +                it.remove();

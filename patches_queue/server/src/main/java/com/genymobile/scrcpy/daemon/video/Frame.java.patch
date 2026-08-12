@@ -3,47 +3,50 @@ new file mode 100644
 index 00000000..aee5d22c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/Frame.java
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,131 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import java.nio.ByteBuffer;
 +
-+/**
-+ * Immutable, kind-tagged frame envelope exchanged between the
-+ * {@link FrameBroadcaster} and its {@link VideoSubscriber}s.
-+ *
-+ * <p>A single {@code Frame} is produced by the broadcaster for each event
-+ * emitted by the encoder (stream header, session meta, or encoded packet) and
-+ * is shared by reference among all subscribers (refs/13 §4B hybrid: one copy
-+ * off the {@code MediaCodec} buffer, many readers). The byte payload is copied
-+ * exactly once — at construction — because {@code MediaCodec} output buffers
-+ * are invalidated by {@code releaseOutputBuffer}.
-+ *
-+ * <p>The {@code kind} discriminator lets a subscriber's bounded queue apply a
-+ * drop policy that never discards header/meta/config packets (essential for
-+ * decoding) and prefers dropping non-keyframe packets when overflowing.
-+ */
 +final class Frame {
 +
-+    static final int KIND_HEADER = 0; // writeVideoHeader()
-+    static final int KIND_META = 1;   // writeSessionMeta(w, h, isClientResize)
-+    static final int KIND_PACKET = 2; // writePacket(data, pts, config, keyFrame)
++    private static final class Data {
++        private final byte[] bytes;
++        private int refCount;
++
++        Data(byte[] bytes) {
++            this.bytes = bytes;
++            this.refCount = 1;
++        }
++
++        synchronized void retain() {
++            refCount++;
++        }
++
++        synchronized void release() {
++            if (--refCount == 0) {
++                ByteArrayPool.recycle(bytes);
++            }
++        }
++    }
++
++    static final int KIND_HEADER = 0;
++    static final int KIND_META = 1;
++    static final int KIND_PACKET = 2;
 +
 +    final int kind;
 +
-+    // KIND_PACKET only
-+    final byte[] data;
++    private final Data data;
 +    final int length;
 +    final long pts;
 +    final boolean config;
 +    final boolean keyFrame;
 +
-+    // KIND_META only
 +    final int width;
 +    final int height;
 +    final boolean isClientResize;
 +
-+    private Frame(int kind, byte[] data, int length, long pts, boolean config, boolean keyFrame,
++    private Frame(int kind, Data data, int length, long pts, boolean config, boolean keyFrame,
 +                  int width, int height, boolean isClientResize) {
 +        this.kind = kind;
 +        this.data = data;
@@ -64,23 +67,29 @@ index 00000000..aee5d22c
 +        return new Frame(KIND_META, null, 0, 0L, false, false, width, height, isClientResize);
 +    }
 +
-+    /**
-+     * Build a packet frame, copying {@code remaining()} bytes out of
-+     * {@code buffer} (via a duplicate so the source position is untouched).
-+     * Must be called BEFORE {@code MediaCodec.releaseOutputBuffer}.
-+     */
 +    static Frame packet(ByteBuffer buffer, long pts, boolean config, boolean keyFrame) {
 +        int len = buffer.remaining();
-+        byte[] data = new byte[len];
-+        buffer.duplicate().get(data);
-+        return new Frame(KIND_PACKET, data, len, pts, config, keyFrame, 0, 0, false);
++        byte[] bytes = ByteArrayPool.get(len);
++        buffer.duplicate().get(bytes, 0, len);
++        return new Frame(KIND_PACKET, new Data(bytes), len, pts, config, keyFrame, 0, 0, false);
 +    }
 +
-+    /**
-+     * @return {@code true} if this frame is essential and must not be dropped
-+     *         by a subscriber's overflow policy (header/meta/CSD/keyframe are
-+     *         all either tiny or required for decoding).
-+     */
++    void retain() {
++        if (data != null) {
++            data.retain();
++        }
++    }
++
++    void release() {
++        if (data != null) {
++            data.release();
++        }
++    }
++
++    byte[] getData() {
++        return data != null ? data.bytes : null;
++    }
++
 +    boolean isDroppable() {
 +        return kind == KIND_PACKET && !keyFrame && !config;
 +    }

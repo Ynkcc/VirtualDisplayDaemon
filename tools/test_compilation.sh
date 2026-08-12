@@ -35,6 +35,10 @@ cd "${SCRCPY_DIR}"
 # Restore the local scrcpy checkout before reapplying patches.
 echo "Resetting local scrcpy checkout..."
 git reset --hard
+git clean -fd
+
+# Ensure local.properties exists for Gradle
+echo "sdk.dir=$ANDROID_HOME" > local.properties
 
 # Apply all patches from the source patches_queue
 echo "Applying patches..."
@@ -47,10 +51,10 @@ fi
 
 # 2. Apply server patches
 # The server patches are expected to be relative to the scrcpy root (start with server/)
-# Looking at the patch content provided earlier, they indeed have 'server/' prefix.
+# We use 'git apply --recount' which is much more robust than the 'patch' utility.
 find "${PATCHES_QUEUE_DIR}/server" -name "*.patch" | sort | while read patch_path; do
     echo "Applying $(basename "${patch_path}")..."
-    patch -p1 < "${patch_path}"
+    git apply --recount --verbose "${patch_path}"
 done
 
 echo "Starting Gradle build for scrcpy server..."
