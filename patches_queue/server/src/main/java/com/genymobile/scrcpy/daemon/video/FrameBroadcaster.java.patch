@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..f17277d0
+index 00000000..bcc44418
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,297 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -23,7 +23,6 @@ index 00000000..f17277d0
 +import java.nio.ByteBuffer;
 +import java.util.ArrayList;
 +import java.util.HashMap;
-+import java.util.Iterator;
 +import java.util.List;
 +import java.util.Map;
 +import java.util.concurrent.atomic.AtomicBoolean;
@@ -185,8 +184,8 @@ index 00000000..f17277d0
 +        if (surfaceBroker != null) {
 +            try {
 +                surfaceBroker.restore(displayId);
-+            } catch (Throwable t) {
-+                Ln.w("FrameBroadcaster[" + displayId + "]: failed to restore fallback surface", t);
++            } catch (Exception e) {
++                Ln.w("FrameBroadcaster[" + displayId + "]: failed to restore fallback surface", e);
 +            }
 +        }
 +        synchronized (lock) {
@@ -267,21 +266,36 @@ index 00000000..f17277d0
 +    }
 +
 +    private void fanOut(Frame f) {
-+        Iterator<VideoSubscriber> it = subscribers.iterator();
-+        while (it.hasNext()) {
-+            VideoSubscriber sub = it.next();
-+            if (!sub.isAlive()) {
-+                Ln.i("FrameBroadcaster[" + displayId + "]: reaping dead subscriber " + sub.getSessionId());
-+                it.remove();
-+                subscribersBySession.remove(sub.getSessionId());
-+                sub.close();
-+                continue;
++        List<VideoSubscriber> alive;
++        List<VideoSubscriber> dead;
++        synchronized (lock) {
++            alive = new ArrayList<>(subscribers.size());
++            dead = new ArrayList<>();
++            for (VideoSubscriber sub : subscribers) {
++                if (sub.isAlive()) {
++                    f.retain();
++                    alive.add(sub);
++                } else {
++                    dead.add(sub);
++                }
 +            }
-+            f.retain();
++            for (VideoSubscriber sub : dead) {
++                Ln.i("FrameBroadcaster[" + displayId + "]: reaping dead subscriber "
++                        + sub.getSessionId());
++                subscribers.remove(sub);
++                subscribersBySession.remove(sub.getSessionId());
++            }
++        }
++        for (VideoSubscriber sub : dead) {
++            sub.close();
++        }
++        for (VideoSubscriber sub : alive) {
 +            sub.deliver(f);
 +            if (!sub.isAlive()) {
-+                it.remove();
-+                subscribersBySession.remove(sub.getSessionId());
++                synchronized (lock) {
++                    subscribers.remove(sub);
++                    subscribersBySession.remove(sub.getSessionId());
++                }
 +                sub.close();
 +            }
 +        }
