@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..a955642f
+index 00000000..c647d3e4
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,396 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -289,6 +289,32 @@ index 00000000..a955642f
 +    public static int readSessionId(Socket socket) throws IOException {
 +        InputStream in = socket.getInputStream();
 +        return readInt32(in);
++    }
++
++    public static boolean authenticate(Socket socket, String expectedToken) throws IOException {
++        InputStream in = socket.getInputStream();
++        int b1 = in.read();
++        int b2 = in.read();
++        int b3 = in.read();
++        int b4 = in.read();
++        if (b1 < 0 || b2 < 0 || b3 < 0 || b4 < 0) {
++            return false;
++        }
++        int len = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
++        if (len < 0 || len > 1024) {
++            return false;
++        }
++        byte[] buf = new byte[len];
++        int read = 0;
++        while (read < len) {
++            int r = in.read(buf, read, len - read);
++            if (r < 0) {
++                return false;
++            }
++            read += r;
++        }
++        String clientToken = new String(buf, StandardCharsets.UTF_8);
++        return expectedToken.equals(clientToken);
 +    }
 +
 +    /**

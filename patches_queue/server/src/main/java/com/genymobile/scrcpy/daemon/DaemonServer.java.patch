@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
 new file mode 100644
-index 00000000..fcce0b10
+index 00000000..30a79dec
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,299 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import android.os.Looper;
@@ -129,6 +129,13 @@ index 00000000..fcce0b10
 +                    socket.close();
 +                    continue;
 +                }
++
++                if (sessions.size() >= MAX_SESSIONS) {
++                    Ln.w("Connection rejected: maximum sessions reached (" + MAX_SESSIONS + ")");
++                    socket.close();
++                    continue;
++                }
++
 +                int role;
 +                try {
 +                    role = TcpDesktopConnection.readSocketRole(socket);
@@ -143,13 +150,9 @@ index 00000000..fcce0b10
 +                        handleNegotiationSocket(socket);
 +                        break;
 +                    case TcpDesktopConnection.ROLE_CONTROL:
-+                        handleControlSocket(socket);
-+                        break;
 +                    case TcpDesktopConnection.ROLE_VIDEO:
-+                        handleVideoSocket(socket);
-+                        break;
 +                    case TcpDesktopConnection.ROLE_AUDIO:
-+                        handleAudioSocket(socket);
++                        handleRoleSocket(role, socket);
 +                        break;
 +                    default:
 +                        Ln.w("Unknown socket role: " + role);
@@ -183,7 +186,7 @@ index 00000000..fcce0b10
 +
 +        if (secretToken != null) {
 +            try {
-+                if (!authenticate(socket, secretToken)) {
++                if (!TcpDesktopConnection.authenticate(socket, secretToken)) {
 +                    String ip = socket.getInetAddress().getHostAddress();
 +                    blacklistedIps.add(ip);
 +                    Ln.w("Authentication failed for IP: " + ip + ". IP blacklisted.");
@@ -225,59 +228,37 @@ index 00000000..fcce0b10
 +        }
 +    }
 +
-+    private void handleControlSocket(Socket socket) {
++    private void handleRoleSocket(int role, Socket socket) {
 +        try {
 +            int sessionId = TcpDesktopConnection.readSessionId(socket);
 +            int displayId = TcpDesktopConnection.readDisplayId(socket);
 +            ClientSession session = sessions.get(sessionId);
 +            if (session == null) {
-+                Ln.w("Control socket for unknown session " + sessionId);
++                Ln.w("Socket for role " + role + " for unknown session " + sessionId);
 +                socket.close();
 +                return;
 +            }
-+            session.onControlSocket(displayId, socket);
-+        } catch (IOException e) {
-+            Ln.w("Failed to handle control socket: " + e.getMessage());
-+            try { socket.close(); } catch (IOException closeEx) {
-+                Ln.d("Failed to close control socket after handling error: " + closeEx.getMessage());
++            switch (role) {
++                case TcpDesktopConnection.ROLE_CONTROL:
++                    session.onControlSocket(displayId, socket);
++                    break;
++                case TcpDesktopConnection.ROLE_VIDEO:
++                    session.onVideoSocket(displayId, socket);
++                    break;
++                case TcpDesktopConnection.ROLE_AUDIO:
++                    session.onAudioSocket(displayId, socket);
++                    break;
++                default:
++                    Ln.w("Unexpected role in handleRoleSocket: " + role);
++                    socket.close();
++                    break;
 +            }
-+        }
-+    }
-+
-+    private void handleVideoSocket(Socket socket) {
-+        try {
-+            int sessionId = TcpDesktopConnection.readSessionId(socket);
-+            int displayId = TcpDesktopConnection.readDisplayId(socket);
-+            ClientSession session = sessions.get(sessionId);
-+            if (session == null) {
-+                Ln.w("Video socket for unknown session " + sessionId);
++        } catch (IOException e) {
++            Ln.w("Failed to handle role " + role + " socket: " + e.getMessage());
++            try {
 +                socket.close();
-+                return;
-+            }
-+            session.onVideoSocket(displayId, socket);
-+        } catch (IOException e) {
-+            Ln.w("Failed to handle video socket: " + e.getMessage());
-+            try { socket.close(); } catch (IOException closeEx) {
-+                Ln.d("Failed to close video socket after handling error: " + closeEx.getMessage());
-+            }
-+        }
-+    }
-+
-+    private void handleAudioSocket(Socket socket) {
-+        try {
-+            int sessionId = TcpDesktopConnection.readSessionId(socket);
-+            int displayId = TcpDesktopConnection.readDisplayId(socket);
-+            ClientSession session = sessions.get(sessionId);
-+            if (session == null) {
-+                Ln.w("Audio socket for unknown session " + sessionId);
-+                socket.close();
-+                return;
-+            }
-+            session.onAudioSocket(displayId, socket);
-+        } catch (IOException e) {
-+            Ln.w("Failed to handle audio socket: " + e.getMessage());
-+            try { socket.close(); } catch (IOException closeEx) {
-+                Ln.d("Failed to close audio socket after handling error: " + closeEx.getMessage());
++            } catch (IOException closeEx) {
++                Ln.d("Failed to close socket after handling error: " + closeEx.getMessage());
 +            }
 +        }
 +    }
@@ -320,31 +301,5 @@ index 00000000..fcce0b10
 +    void removeSession(int sessionId) {
 +        sessions.remove(sessionId);
 +        Ln.i("DaemonServer: session " + sessionId + " removed");
-+    }
-+
-+    private boolean authenticate(Socket socket, String expectedToken) throws IOException {
-+        java.io.InputStream in = socket.getInputStream();
-+        int b1 = in.read();
-+        int b2 = in.read();
-+        int b3 = in.read();
-+        int b4 = in.read();
-+        if (b1 < 0 || b2 < 0 || b3 < 0 || b4 < 0) {
-+            return false;
-+        }
-+        int len = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
-+        if (len < 0 || len > 1024) {
-+            return false;
-+        }
-+        byte[] buf = new byte[len];
-+        int read = 0;
-+        while (read < len) {
-+            int r = in.read(buf, read, len - read);
-+            if (r < 0) {
-+                return false;
-+            }
-+            read += r;
-+        }
-+        String clientToken = new String(buf, java.nio.charset.StandardCharsets.UTF_8);
-+        return expectedToken.equals(clientToken);
 +    }
 +}

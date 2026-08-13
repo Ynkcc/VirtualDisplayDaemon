@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..2da510f6
+index 00000000..0d2744b6
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,364 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -154,6 +154,14 @@ index 00000000..2da510f6
 +    }
 +
 +    private void initRegistry() {
++        initDisplayCommands();
++        initRotationCommands();
++        initSessionCommands();
++        initAppCommands();
++        initMiscCommands();
++    }
++
++    private void initDisplayCommands() {
 +        register(DaemonControlMessages.TYPE_CREATE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int newDisplayId = registry.createVirtualDisplay(
@@ -161,7 +169,7 @@ index 00000000..2da510f6
 +            if (newDisplayId == -1) {
 +                throw new RuntimeException("FAILED");
 +            }
-+            // Make the display persistent by default: acquire a reference for the 
++            // Make the display persistent by default: acquire a reference for the
 +            // daemon itself (-1) and the current session.
 +            registry.acquire(newDisplayId, VirtualDisplayRegistry.PERSISTENT_SESSION_ID);
 +            registry.acquire(newDisplayId, sessionId);
@@ -197,15 +205,6 @@ index 00000000..2da510f6
 +            sendSuccessResponse(msg, displayId, "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_START_ACTIVITY, ExecutionPolicy.SLOW, (msg, ctx) -> {
-+            DaemonControlMessage dto = payload(msg);
-+            int result = ActivityLauncher.startActivity(dto.getText(), dto.getDisplayId());
-+            if (result < 0) {
-+                throw new RuntimeException("FAILED");
-+            }
-+            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
-+        });
-+
 +        register(DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_IDS, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            int[] ids = registry.getActiveDisplayIds();
 +            if (ctx.getSender() != null) {
@@ -214,22 +213,16 @@ index 00000000..2da510f6
 +            }
 +        });
 +
-+        register(DaemonControlMessages.TYPE_EXIT_DAEMON, ExecutionPolicy.FAST, (msg, ctx) -> {
-+            Ln.i("handleExitDaemon: Quit request received, replying OK and shutting down...");
-+            sendSuccessResponse(msg, -1, "OK");
-+
-+            new Thread(() -> {
-+                try {
-+                    Thread.sleep(100);
-+                } catch (InterruptedException e) {
-+                    Thread.currentThread().interrupt();
-+                    Ln.d("handleExitDaemon: delay interrupted, proceeding to exit");
-+                }
-+                exitCoordinator.requestExit();
-+                close();
-+            }).start();
++        register(DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS, ExecutionPolicy.FAST, (msg, ctx) -> {
++            com.genymobile.scrcpy.display.DisplayInfo[] infos = registry.getActiveDisplayInfos();
++            if (ctx.getSender() != null) {
++                DeviceMessage response = DaemonDeviceMessages.createActiveDisplayInfosResponse(payload(msg).getSequence(), infos);
++                ctx.getSender().send(response);
++            }
 +        });
++    }
 +
++    private void initRotationCommands() {
 +        register(DaemonControlMessages.TYPE_GET_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int rotation = rotationController.getRotation(dto.getDisplayId());
@@ -254,15 +247,9 @@ index 00000000..2da510f6
 +            int frozen = rotationController.isFrozen(dto.getDisplayId());
 +            sendSuccessResponse(msg, dto.getDisplayId(), String.valueOf(frozen));
 +        });
++    }
 +
-+        register(DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS, ExecutionPolicy.FAST, (msg, ctx) -> {
-+            com.genymobile.scrcpy.display.DisplayInfo[] infos = registry.getActiveDisplayInfos();
-+            if (ctx.getSender() != null) {
-+                DeviceMessage response = DaemonDeviceMessages.createActiveDisplayInfosResponse(payload(msg).getSequence(), infos);
-+                ctx.getSender().send(response);
-+            }
-+        });
-+
++    private void initSessionCommands() {
 +        register(DaemonControlMessages.TYPE_CONFIGURE_SESSION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            if (sessionConfigurator == null) {
 +                throw new RuntimeException("CONFIGURE_SESSION is only available on the negotiation channel");
@@ -270,6 +257,17 @@ index 00000000..2da510f6
 +            DaemonControlMessage dto = payload(msg);
 +            sessionConfigurator.configure(dto.getOptionsKv(), dto.getRolesMask(), dto.getRolesEntries());
 +            sendSuccessResponse(msg, -1, "OK");
++        });
++    }
++
++    private void initAppCommands() {
++        register(DaemonControlMessages.TYPE_START_ACTIVITY, ExecutionPolicy.SLOW, (msg, ctx) -> {
++            DaemonControlMessage dto = payload(msg);
++            int result = ActivityLauncher.startActivity(dto.getText(), dto.getDisplayId());
++            if (result < 0) {
++                throw new RuntimeException("FAILED");
++            }
++            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
 +
 +        register(DaemonControlMessages.TYPE_LAUNCH_HOME, ExecutionPolicy.SLOW, (msg, ctx) -> {
@@ -287,6 +285,24 @@ index 00000000..2da510f6
 +                DeviceMessage response = DaemonDeviceMessages.createAppsListResponse(payload(msg).getSequence(), apps);
 +                ctx.getSender().send(response);
 +            }
++        });
++    }
++
++    private void initMiscCommands() {
++        register(DaemonControlMessages.TYPE_EXIT_DAEMON, ExecutionPolicy.FAST, (msg, ctx) -> {
++            Ln.i("handleExitDaemon: Quit request received, replying OK and shutting down...");
++            sendSuccessResponse(msg, -1, "OK");
++
++            new Thread(() -> {
++                try {
++                    Thread.sleep(100);
++                } catch (InterruptedException e) {
++                    Thread.currentThread().interrupt();
++                    Ln.d("handleExitDaemon: delay interrupted, proceeding to exit");
++                }
++                exitCoordinator.requestExit();
++                close();
++            }).start();
 +        });
 +
 +        register(DaemonControlMessages.TYPE_PING, ExecutionPolicy.FAST, (msg, ctx) -> {

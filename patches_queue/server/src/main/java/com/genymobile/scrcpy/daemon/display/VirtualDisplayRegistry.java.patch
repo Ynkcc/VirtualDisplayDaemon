@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..c6e2a1e2
+index 00000000..3d30db81
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,493 @@
+@@ -0,0 +1,499 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -23,6 +23,7 @@ index 00000000..c6e2a1e2
 +import java.util.Iterator;
 +import java.util.List;
 +import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
 +
 +public final class VirtualDisplayRegistry {
 +
@@ -405,6 +406,13 @@ index 00000000..c6e2a1e2
 +        if (ids == null) {
 +            ids = new int[0];
 +        }
++        
++        // Snapshot active sessions to avoid holding the lock during getDisplayInfo() calls
++        Map<Integer, VirtualDisplaySession> sessionsSnapshot;
++        synchronized (activeDisplaysLock) {
++            sessionsSnapshot = new HashMap<>(activeSessions);
++        }
++
 +        java.util.List<com.genymobile.scrcpy.display.DisplayInfo> result = new java.util.ArrayList<>(ids.length);
 +        for (int id : ids) {
 +            try {
@@ -412,12 +420,10 @@ index 00000000..c6e2a1e2
 +                if (info != null) {
 +                    int mirrorDisplayId = -1;
 +                    boolean owned = false;
-+                    synchronized (activeDisplaysLock) {
-+                        VirtualDisplaySession session = activeSessions.get(id);
-+                        if (session != null) {
-+                            mirrorDisplayId = session.getMirrorDisplayId();
-+                            owned = true;
-+                        }
++                    VirtualDisplaySession session = sessionsSnapshot.get(id);
++                    if (session != null) {
++                        mirrorDisplayId = session.getMirrorDisplayId();
++                        owned = true;
 +                    }
 +                    com.genymobile.scrcpy.display.DisplayInfo enrichedInfo = new com.genymobile.scrcpy.display.DisplayInfo(
 +                        info.getDisplayId(),

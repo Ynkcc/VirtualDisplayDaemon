@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/SessionVideoController.java b/server/src/main/java/com/genymobile/scrcpy/daemon/SessionVideoController.java
 new file mode 100644
-index 00000000..6bffdafc
+index 00000000..eac7e92f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/SessionVideoController.java
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,268 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -56,9 +56,9 @@ index 00000000..6bffdafc
 +    private Controller controller;
 +    private VideoSubscriber currentSubscriber;
 +
-+    private final AtomicBoolean videoStarted = new AtomicBoolean(false);
-+    private final AtomicBoolean vdAcquired = new AtomicBoolean(false);
-+    private volatile boolean acquiredVdIsVirtual; // false for displayId==0
++    private boolean videoStarted = false;
++    private boolean vdAcquired = false;
++    private boolean acquiredVdIsVirtual; // false for displayId==0
 +
 +    public interface TcpVideoBinding {
 +        FileDescriptor getVideoFd();
@@ -97,7 +97,7 @@ index 00000000..6bffdafc
 +    }
 +
 +    public synchronized void setSessionOptions(Options options, String[] baseArgs) {
-+        if (videoStarted.get()) {
++        if (videoStarted) {
 +            throw new IllegalStateException(
 +                    "Session[" + sessionId + "]: cannot reconfigure options — video already started");
 +        }
@@ -127,7 +127,7 @@ index 00000000..6bffdafc
 +        if (isSessionExited.getAsBoolean()) {
 +            return false;
 +        }
-+        if (videoStarted.get()) {
++        if (videoStarted) {
 +            Ln.w("Session[" + sessionId + "]: video already started for displayId=" + displayId);
 +            return true;
 +        }
@@ -143,8 +143,9 @@ index 00000000..6bffdafc
 +        // keep its display alive for the duration of the subscription.
 +        if (virtualDisplayRegistry != null && displayId != 0) {
 +            if (virtualDisplayRegistry.hasDisplay(displayId)) {
-+                if (vdAcquired.compareAndSet(false, true)) {
++                if (!vdAcquired) {
 +                    virtualDisplayRegistry.acquire(displayId, sessionId);
++                    vdAcquired = true;
 +                    acquiredVdIsVirtual = true;
 +                }
 +            }
@@ -163,12 +164,12 @@ index 00000000..6bffdafc
 +            // since replaced this one (re-bind race).
 +            final VideoSubscriber capturedSubscriber = currentSubscriber;
 +            currentSubscriber.setOnDeath(() -> onSubscriberDied(capturedSubscriber));
-+            videoStarted.set(true);
++            videoStarted = true;
 +            Ln.i("Session[" + sessionId + "]: video stream started for displayId=" + displayId);
 +            return true;
 +        } catch (Exception e) {
 +            Ln.e("Session[" + sessionId + "]: failed to start video stream displayId=" + displayId, e);
-+            videoStarted.set(false);
++            videoStarted = false;
 +            stopVideoInternal();
 +            return false;
 +        }
@@ -197,7 +198,7 @@ index 00000000..6bffdafc
 +
 +    @Override
 +    public synchronized boolean stopVideoStream() {
-+        if (!videoStarted.get()) {
++        if (!videoStarted) {
 +            Ln.w("Session[" + sessionId + "]: video not started (displayId=" + displayId + ")");
 +            return false;
 +        }
@@ -214,7 +215,7 @@ index 00000000..6bffdafc
 +            broadcasterRegistry.releaseSubscriber(displayId, sessionId, currentSubscriber);
 +            currentSubscriber = null;
 +        }
-+        videoStarted.set(false);
++        videoStarted = false;
 +
 +        // Release the VD reference we took on start. Releasing here is a
 +        // best-effort per-stream cleanup; the session also calls
@@ -223,15 +224,16 @@ index 00000000..6bffdafc
 +        // double-release of the same ref by this path is impossible (the
 +        // registry uses sessionId keying — releasing a ref we already
 +        // released is a no-op).
-+        if (vdAcquired.compareAndSet(true, false) && virtualDisplayRegistry != null && acquiredVdIsVirtual) {
++        if (vdAcquired && virtualDisplayRegistry != null && acquiredVdIsVirtual) {
 +            virtualDisplayRegistry.release(displayId, sessionId);
++            vdAcquired = false;
 +        }
 +        Ln.i("Session[" + sessionId + "]: video stream stopped (displayId=" + displayId + ")");
 +    }
 +
 +    @Override
-+    public boolean isVideoStarted() {
-+        return videoStarted.get();
++    public synchronized boolean isVideoStarted() {
++        return videoStarted;
 +    }
 +
 +    /**
@@ -249,7 +251,7 @@ index 00000000..6bffdafc
 +                // fresh subscriber + fresh VD acquire. Without this,
 +                // startVideoStreamInternal sees videoStarted=true and returns
 +                // early, leaving the new socket with no subscriber (0 bytes).
-+                if (videoStarted.get()) {
++                if (videoStarted) {
 +                    Ln.i("Session[" + sessionId + "]: re-bind video socket for displayId=" + displayId
 +                            + ", stopping previous stream first");
 +                    stopVideoInternal();

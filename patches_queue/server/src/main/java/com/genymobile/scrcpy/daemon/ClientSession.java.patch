@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..f6e69591
+index 00000000..0031a955
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,478 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -23,11 +23,12 @@ index 00000000..f6e69591
 +import java.net.Socket;
 +import java.util.ArrayList;
 +import java.util.Collections;
-+import java.util.HashMap;
-+import java.util.HashSet;
 +import java.util.List;
 +import java.util.Map;
 +import java.util.Set;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
 +import java.util.concurrent.atomic.AtomicBoolean;
 +
 +/**
@@ -71,15 +72,15 @@ index 00000000..f6e69591
 +    private volatile Set<TcpDesktopConnection.RoleDisplayKey> declaredRoleKeys = Collections.emptySet();
 +
 +    private volatile int phase = PHASE_INIT;
-+    private final Object phaseLock = new Object();
++    private final CountDownLatch configuredLatch = new CountDownLatch(1);
 +    private final AtomicBoolean exited = new AtomicBoolean(false);
 +
 +    // Per-(displayId) video controllers. Multiple displays → multiple instances.
-+    private final Map<Integer, SessionVideoController> videoControllers = new HashMap<>();
++    private final Map<Integer, SessionVideoController> videoControllers = new ConcurrentHashMap<>();
 +
 +    // Per-(displayId) controllers and control-loop runners.
-+    private final Map<Integer, Controller> controllers = new HashMap<>();
-+    private final Map<Integer, ControlLoopRunner> controlLoopRunners = new HashMap<>();
++    private final Map<Integer, Controller> controllers = new ConcurrentHashMap<>();
++    private final Map<Integer, ControlLoopRunner> controlLoopRunners = new ConcurrentHashMap<>();
 +
 +    private volatile DaemonCommandHandler negotiationCommandHandler;
 +
@@ -189,7 +190,7 @@ index 00000000..f6e69591
 +        this.declaredRolesMask = legacyRolesMask;
 +
 +        if (rolesEntries != null && !rolesEntries.isEmpty()) {
-+            Set<TcpDesktopConnection.RoleDisplayKey> keys = new HashSet<>();
++            Set<TcpDesktopConnection.RoleDisplayKey> keys = ConcurrentHashMap.newKeySet();
 +            for (DaemonControlMessage.RoleEntry e : rolesEntries) {
 +                keys.add(new TcpDesktopConnection.RoleDisplayKey(e.role, e.displayId));
 +            }
@@ -207,17 +208,13 @@ index 00000000..f6e69591
 +
 +        // Propagate session options to any existing SessionVideoController
 +        // (none should exist yet; kept for forward safety).
-+        synchronized (videoControllers) {
-+            for (SessionVideoController vc : videoControllers.values()) {
-+                vc.setSessionOptions(parsed, merged);
-+            }
++        for (SessionVideoController vc : videoControllers.values()) {
++            vc.setSessionOptions(parsed, merged);
 +        }
 +
-+        synchronized (phaseLock) {
-+            if (phase == PHASE_INIT) {
-+                phase = PHASE_CONFIGURED;
-+                phaseLock.notifyAll();
-+            }
++        if (phase == PHASE_INIT) {
++            phase = PHASE_CONFIGURED;
++            configuredLatch.countDown();
 +        }
 +        Ln.i("Session[" + sessionId + "]: CONFIGURE_SESSION applied — phase=CONFIGURED"
 +                + ", rolesMask=0b" + Integer.toBinaryString(this.declaredRolesMask)
@@ -231,17 +228,12 @@ index 00000000..f6e69591
 +
 +    private boolean acceptRoleSocket(int role, int displayId) {
 +        if (phase == PHASE_INIT) {
-+            synchronized (phaseLock) {
-+                long timeout = 2000;
-+                long start = System.currentTimeMillis();
-+                while (phase == PHASE_INIT && (System.currentTimeMillis() - start) < timeout) {
-+                    try {
-+                        phaseLock.wait(timeout - (System.currentTimeMillis() - start));
-+                    } catch (InterruptedException e) {
-+                        Thread.currentThread().interrupt();
-+                        break;
-+                    }
++            try {
++                if (!configuredLatch.await(2000, TimeUnit.MILLISECONDS)) {
++                    Ln.w("Session[" + sessionId + "]: timeout waiting for CONFIGURE_SESSION");
 +                }
++            } catch (InterruptedException e) {
++                Thread.currentThread().interrupt();
 +            }
 +        }
 +        if (phase != PHASE_CONFIGURED) {
@@ -298,43 +290,39 @@ index 00000000..f6e69591
 +                    + ", launching scrcpy controller");
 +
 +            Controller controller;
-+            synchronized (controllers) {
-+                Controller stale = controllers.remove(displayId);
-+                if (stale != null) {
-+                    stale.stop();
-+                    ControlLoopRunner sr = controlLoopRunners.remove(displayId);
-+                    if (sr != null) {
-+                        try { sr.join(); } catch (InterruptedException ignored) {
-+                            Thread.currentThread().interrupt();
-+                        }
++            Controller stale = controllers.remove(displayId);
++            if (stale != null) {
++                stale.stop();
++                ControlLoopRunner sr = controlLoopRunners.remove(displayId);
++                if (sr != null) {
++                    try { sr.join(); } catch (InterruptedException ignored) {
++                        Thread.currentThread().interrupt();
 +                    }
 +                }
-+                int mirrorId = -1;
-+                com.genymobile.scrcpy.daemon.display.VirtualDisplaySession vdSession = registry.getSession(displayId);
-+                if (vdSession != null) {
-+                    mirrorId = vdSession.getMirrorDisplayId();
-+                }
-+                controller = new Controller(ch, null, sessionOptions, displayId, mirrorId);
-+
-+                // 职责去重: swallow daemon commands on control channel; only
-+                // the negotiation channel carries them.
-+                controller.setControlMessageExtension(msg -> {
-+                    Ln.w("Session[" + sessionId + "]: daemon command type " + msg.getType()
-+                            + " rejected on control channel (displayId=" + displayId
-+                            + ") — send it on the negotiation channel instead");
-+                    return true;
-+                });
-+
-+                controllers.put(displayId, controller);
 +            }
++            int mirrorId = -1;
++            com.genymobile.scrcpy.daemon.display.VirtualDisplaySession vdSession = registry.getSession(displayId);
++            if (vdSession != null) {
++                mirrorId = vdSession.getMirrorDisplayId();
++            }
++            controller = new Controller(ch, null, sessionOptions, displayId, mirrorId);
++
++            // 职责去重: swallow daemon commands on control channel; only
++            // the negotiation channel carries them.
++            controller.setControlMessageExtension(msg -> {
++                Ln.w("Session[" + sessionId + "]: daemon command type " + msg.getType()
++                        + " rejected on control channel (displayId=" + displayId
++                        + ") — send it on the negotiation channel instead");
++                return true;
++            });
++
++            controllers.put(displayId, controller);
 +
 +            // Wire any displayId-matching video controller to this controller
 +            // (needed by encoder reset paths that consult the scrcpy Controller).
-+            synchronized (videoControllers) {
-+                SessionVideoController vc = videoControllers.get(displayId);
-+                if (vc != null) {
-+                    vc.setController(controller);
-+                }
++            SessionVideoController vc = videoControllers.get(displayId);
++            if (vc != null) {
++                vc.setController(controller);
 +            }
 +
 +            // Broadcast into the negotiation handler — it now exposes all
@@ -346,9 +334,7 @@ index 00000000..f6e69591
 +            }
 +
 +            ControlLoopRunner runner = new ControlLoopRunner(sessionId);
-+            synchronized (controlLoopRunners) {
-+                controlLoopRunners.put(displayId, runner);
-+            }
++            controlLoopRunners.put(displayId, runner);
 +            final Controller finalCtrl = controller;
 +            runner.start(controller, fatalError -> {
 +                Ln.i("Session[" + sessionId + "]: scrcpy controller terminated for displayId="
@@ -367,20 +353,21 @@ index 00000000..f6e69591
 +            return;
 +        }
 +        SessionVideoController vc;
-+        synchronized (videoControllers) {
-+            vc = videoControllers.get(displayId);
-+            if (vc == null) {
-+                final int vcDisplayId = displayId;
-+                vc = new SessionVideoController(
-+                        sessionId,
-+                        vcDisplayId,
-+                        new TcpVideoBindingAdapter(connection, vcDisplayId),
-+                        sessionOptions, sessionArgs, surfaceBroker, broadcasterRegistry,
-+                        registry, exited::get);
-+                videoControllers.put(displayId, vc);
++        vc = videoControllers.get(displayId);
++        if (vc == null) {
++            final int vcDisplayId = displayId;
++            vc = new SessionVideoController(
++                    sessionId,
++                    vcDisplayId,
++                    new TcpVideoBindingAdapter(connection, vcDisplayId),
++                    sessionOptions, sessionArgs, surfaceBroker, broadcasterRegistry,
++                    registry, exited::get);
++            SessionVideoController existing = videoControllers.putIfAbsent(displayId, vc);
++            if (existing != null) {
++                vc = existing;
++            } else {
 +                // If a controller for this display already exists, wire it.
-+                Controller ctrl;
-+                synchronized (controllers) { ctrl = controllers.get(vcDisplayId); }
++                Controller ctrl = controllers.get(vcDisplayId);
 +                if (ctrl != null) vc.setController(ctrl);
 +            }
 +        }
@@ -445,9 +432,10 @@ index 00000000..f6e69591
 +
 +    private void cleanup() {
 +        if (exited.compareAndSet(false, true)) {
-+            synchronized (phaseLock) {
-+                phase = PHASE_CLOSED;
-+            }
++            phase = PHASE_CLOSED;
++            configuredLatch.countDown();
++        } else {
++            return; // Already cleaned up
 +        }
 +
 +        // Step 3: release all VD references held by this session.
@@ -458,26 +446,17 @@ index 00000000..f6e69591
 +        // Stop all per-display video controllers (releases subscribers a
 +        // second time — registry deduplicates repeated releaseSubscriber calls
 +        // for the same (displayId, sessionId, subscriber) so this is safe).
-+        List<SessionVideoController> videoCopy;
-+        synchronized (videoControllers) {
-+            videoCopy = new ArrayList<>(videoControllers.values());
-+            videoControllers.clear();
-+        }
++        List<SessionVideoController> videoCopy = new ArrayList<>(videoControllers.values());
++        videoControllers.clear();
 +        for (SessionVideoController vc : videoCopy) {
 +            vc.stopVideoInternal();
 +        }
 +
 +        // Stop all per-display controllers and their loops.
-+        List<Controller> ctrlCopy;
-+        List<ControlLoopRunner> runnerCopy;
-+        synchronized (controllers) {
-+            ctrlCopy = new ArrayList<>(controllers.values());
-+            controllers.clear();
-+        }
-+        synchronized (controlLoopRunners) {
-+            runnerCopy = new ArrayList<>(controlLoopRunners.values());
-+            controlLoopRunners.clear();
-+        }
++        List<Controller> ctrlCopy = new ArrayList<>(controllers.values());
++        controllers.clear();
++        List<ControlLoopRunner> runnerCopy = new ArrayList<>(controlLoopRunners.values());
++        controlLoopRunners.clear();
 +        for (Controller c : ctrlCopy) {
 +            c.stop();
 +        }
