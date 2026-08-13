@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..8dbf6232
+index 00000000..ff361a40
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,505 @@
+@@ -0,0 +1,477 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -87,8 +87,8 @@ index 00000000..8dbf6232
 +                    if (img != null) {
 +                        img.close();
 +                    }
-+                } catch (Throwable t) {
-+                    Ln.w("VirtualDisplayRegistry: ImageReader error", t);
++                } catch (Exception e) {
++                    Ln.w("VirtualDisplayRegistry: ImageReader error", e);
 +                }
 +            }, new Handler(readerThread.getLooper()));
 +
@@ -112,7 +112,7 @@ index 00000000..8dbf6232
 +            try {
 +                powered = ServiceManager.getDisplayManager().requestDisplayPower(displayId, true);
 +                Ln.i("VirtualDisplayRegistry: requestDisplayPower(" + displayId + ", true) returned: " + powered);
-+            } catch (Throwable t) {
++            } catch (Exception e) {
 +                Ln.w("VirtualDisplayRegistry: requestDisplayPower not supported on this device/Android version: " + t.getMessage());
 +            }
 +
@@ -143,6 +143,9 @@ index 00000000..8dbf6232
 +                }
 +            }
 +            return -1;
++        } catch (Error err) {
++            Ln.e("VirtualDisplayRegistry: unrecoverable error creating virtual display", err);
++            throw err;
 +        }
 +    }
 +
@@ -173,8 +176,8 @@ index 00000000..8dbf6232
 +            try {
 +                ServiceManager.getWindowManager().thawRotation(displayId);
 +                Ln.i("VirtualDisplayRegistry: thawed rotation for display id=" + displayId);
-+            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: failed to thaw rotation for displayId=" + displayId, t);
++            } catch (Exception e) {
++                Ln.w("VirtualDisplayRegistry: failed to thaw rotation for displayId=" + displayId, e);
 +            }
 +            DisplayCompat.moveTasksToDefaultDisplay(displayId);
 +            session.close();
@@ -183,6 +186,9 @@ index 00000000..8dbf6232
 +        } catch (Exception e) {
 +            Ln.e("VirtualDisplayRegistry: failed to release virtual display id=" + displayId, e);
 +            return false;
++        } catch (Error err) {
++            Ln.e("VirtualDisplayRegistry: unrecoverable error releasing display id=" + displayId, err);
++            throw err;
 +        }
 +    }
 +
@@ -300,8 +306,8 @@ index 00000000..8dbf6232
 +                        if (info != null && info.getDpi() > 0) {
 +                            dpi = info.getDpi();
 +                        }
-+                    } catch (Throwable t) {
-+                        Ln.w("VirtualDisplayRegistry: failed to query DPI from DisplayInfo for displayId=" + displayId, t);
++                    } catch (Exception e) {
++                        Ln.w("VirtualDisplayRegistry: failed to query DPI from DisplayInfo for displayId=" + displayId, e);
 +                    }
 +                }
 +
@@ -318,11 +324,7 @@ index 00000000..8dbf6232
 +                    Ln.i("VirtualDisplayRegistry: resized virtual display id=" + displayId + " to " + width + "x" + height
 +                            + "/" + dpi + " (external surface, reader untouched)");
 +                    // Re-freeze rotation after resize to ensure orientation stays isolated.
-+                    try {
-+                        ServiceManager.getWindowManager().freezeRotation(displayId, Surface.ROTATION_0);
-+                    } catch (Throwable ignore) {
-+                        Ln.w("VirtualDisplayRegistry: freezeRotation failed (best-effort) for displayId=" + displayId, ignore);
-+                    }
++                    freezeRotationQuietly(displayId);
 +                    return true;
 +                }
 +
@@ -331,11 +333,7 @@ index 00000000..8dbf6232
 +                    vd.resize(width, height, dpi);
 +                    Ln.i("VirtualDisplayRegistry: resized virtual display id=" + displayId + " to " + width + "x" + height
 +                            + "/" + dpi + " (no reader)");
-+                    try {
-+                        ServiceManager.getWindowManager().freezeRotation(displayId, Surface.ROTATION_0);
-+                    } catch (Throwable ignore) {
-+                        Ln.w("VirtualDisplayRegistry: freezeRotation failed (best-effort) for displayId=" + displayId, ignore);
-+                    }
++                    freezeRotationQuietly(displayId);
 +                    return true;
 +                }
 +
@@ -354,19 +352,15 @@ index 00000000..8dbf6232
 +                            if (img != null) {
 +                                img.close();
 +                            }
-+                        } catch (Throwable t) {
-+                            Ln.w("VirtualDisplayRegistry: ImageReader error after resize", t);
++                        } catch (Exception e) {
++                            Ln.w("VirtualDisplayRegistry: ImageReader error after resize", e);
 +                        }
 +                    }, new Handler(readerThread.getLooper()));
 +
 +                    vd.setSurface(newReader.getSurface());
 +                    vd.resize(width, height, dpi);
 +                    // Re-freeze rotation to keep virtual display orientation isolated
-+                    try {
-+                        ServiceManager.getWindowManager().freezeRotation(displayId, Surface.ROTATION_0);
-+                    } catch (Throwable ignore) {
-+                        Ln.w("VirtualDisplayRegistry: freezeRotation failed (best-effort) for displayId=" + displayId, ignore);
-+                    }
++                    freezeRotationQuietly(displayId);
 +                } catch (Exception e) {
 +                    try {
 +                        newReader.close();
@@ -389,6 +383,9 @@ index 00000000..8dbf6232
 +            } catch (Exception e) {
 +                Ln.e("VirtualDisplayRegistry: failed to resize virtual display id=" + displayId, e);
 +                return false;
++            } catch (Error err) {
++                Ln.e("VirtualDisplayRegistry: unrecoverable error resizing display id=" + displayId, err);
++                throw err;
 +            }
 +        }
 +    }
@@ -446,8 +443,8 @@ index 00000000..8dbf6232
 +                } else {
 +                    Ln.w("VirtualDisplayRegistry: getDisplayInfo returned null for displayId=" + id);
 +                }
-+            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: failed to query DisplayInfo for displayId=" + id, t);
++            } catch (Exception e) {
++                Ln.w("VirtualDisplayRegistry: failed to query DisplayInfo for displayId=" + id, e);
 +            }
 +        }
 +        return result.toArray(new com.genymobile.scrcpy.display.DisplayInfo[0]);
@@ -469,43 +466,18 @@ index 00000000..8dbf6232
 +    }
 +
 +    /**
-+     * Freeze a display's rotation and verify the freeze took effect, retrying a
-+     * few times to bridge the race where the WindowManager has not yet registered
-+     * a newly-created or just-resized display (freezeRotation would silently fail
-+     * in that case — WindowManager catches the exception internally).
-+     *
-+     * <p>This is a daemon-side workaround; it does not modify upstream
-+     * {@link com.genymobile.scrcpy.wrappers.WindowManager}.
++     * Best-effort freeze rotation for a virtual display. Any exception is
++     * swallowed with a warning — callers treat rotation freeze as a fire-and-forget
++     * orientation hint, because WindowManager applies it asynchronously and
++     * may silently no-op on pre-Lollipop devices or for displays that have
++     * not finished registering yet.
 +     */
-+    private void freezeRotationWithRetry(int displayId, int rotation) {
-+        com.genymobile.scrcpy.wrappers.WindowManager wm = ServiceManager.getWindowManager();
-+        for (int attempt = 1; attempt <= 5; attempt++) {
-+            try {
-+                wm.freezeRotation(displayId, rotation);
-+            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: freezeRotation attempt " + attempt
-+                        + " threw for displayId=" + displayId, t);
-+            }
-+            try {
-+                if (wm.isRotationFrozen(displayId)) {
-+                    Ln.i("VirtualDisplayRegistry: froze rotation (ROTATION_" + rotation
-+                            + ") for display id=" + displayId + " (attempt " + attempt + ")");
-+                    return;
-+                }
-+            } catch (Throwable t) {
-+                // isRotationFrozen not supported on this version — assume freeze succeeded.
-+                Ln.i("VirtualDisplayRegistry: freezeRotation completed for display id=" + displayId
-+                        + " (isRotationFrozen check unavailable, attempt " + attempt + ")");
-+                return;
-+            }
-+            try {
-+                Thread.sleep(100 * attempt);
-+            } catch (InterruptedException ie) {
-+                Thread.currentThread().interrupt();
-+                return;
-+            }
++    private void freezeRotationQuietly(int displayId) {
++        try {
++            ServiceManager.getWindowManager().freezeRotation(displayId, Surface.ROTATION_0);
++        } catch (Exception e) {
++            Ln.w("VirtualDisplayRegistry: freezeRotation failed (best-effort) for displayId="
++                    + displayId, e);
 +        }
-+        Ln.w("VirtualDisplayRegistry: could not confirm rotation freeze for displayId="
-+                + displayId + " after 5 attempts (continuing — freeze may still apply asynchronously)");
 +    }
 +}

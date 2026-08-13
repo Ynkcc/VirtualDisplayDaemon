@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
 new file mode 100644
-index 00000000..56c0d34d
+index 00000000..1bc91058
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,54 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.AsyncProcessor;
@@ -40,8 +40,11 @@ index 00000000..56c0d34d
 +                Ln.i("Session[" + sessionId + "]: controller.join() returned");
 +            } catch (InterruptedException e) {
 +                Thread.currentThread().interrupt();
-+            } catch (Throwable t) {
-+                Ln.e("Session[" + sessionId + "]: ctrlThread error", t);
++            } catch (Exception e) {
++                Ln.e("Session[" + sessionId + "]: ctrlThread error", e);
++            } catch (Error err) {
++                Ln.e("Session[" + sessionId + "]: ctrlThread unrecoverable error", err);
++                throw err;
 +            }
 +        }, "ctrl-" + sessionId);
 +        thread.setDaemon(true);

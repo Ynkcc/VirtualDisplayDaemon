@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..0d2744b6
+index 00000000..8f6c3f87
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,371 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -167,7 +167,7 @@ index 00000000..0d2744b6
 +            int newDisplayId = registry.createVirtualDisplay(
 +                    dto.getText(), dto.getWidth(), dto.getHeight(), dto.getDpi(), dto.getFlags(), dto.getDisplayId());
 +            if (newDisplayId == -1) {
-+                throw new RuntimeException("FAILED");
++                throw new CommandExecutionException("FAILED");
 +            }
 +            // Make the display persistent by default: acquire a reference for the
 +            // daemon itself (-1) and the current session.
@@ -189,7 +189,7 @@ index 00000000..0d2744b6
 +            boolean ok = registry.resizeVirtualDisplay(
 +                    displayId, dto.getWidth(), dto.getHeight(), dto.getDpi());
 +            if (!ok) {
-+                throw new RuntimeException("FAILED");
++                throw new CommandExecutionException("FAILED");
 +            }
 +            // Step 4: kick the shared broadcaster's encoder so it rebuilds at
 +            // the new dimensions. All subscribers receive a fresh session meta
@@ -252,7 +252,7 @@ index 00000000..0d2744b6
 +    private void initSessionCommands() {
 +        register(DaemonControlMessages.TYPE_CONFIGURE_SESSION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            if (sessionConfigurator == null) {
-+                throw new RuntimeException("CONFIGURE_SESSION is only available on the negotiation channel");
++                throw new CommandExecutionException("CONFIGURE_SESSION is only available on the negotiation channel");
 +            }
 +            DaemonControlMessage dto = payload(msg);
 +            sessionConfigurator.configure(dto.getOptionsKv(), dto.getRolesMask(), dto.getRolesEntries());
@@ -265,7 +265,7 @@ index 00000000..0d2744b6
 +            DaemonControlMessage dto = payload(msg);
 +            int result = ActivityLauncher.startActivity(dto.getText(), dto.getDisplayId());
 +            if (result < 0) {
-+                throw new RuntimeException("FAILED");
++                throw new CommandExecutionException("FAILED");
 +            }
 +            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
@@ -274,7 +274,7 @@ index 00000000..0d2744b6
 +            DaemonControlMessage dto = payload(msg);
 +            int result = ActivityLauncher.launchHome(dto.getDisplayId());
 +            if (result < 0) {
-+                throw new RuntimeException("FAILED");
++                throw new CommandExecutionException("FAILED");
 +            }
 +            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
@@ -320,9 +320,16 @@ index 00000000..0d2744b6
 +        Runnable task = () -> {
 +            try {
 +                entry.handler.handle(msg, context);
-+            } catch (Throwable t) {
-+                Ln.e("Execution of command type=" + msg.getType() + " failed", t);
-+                sendErrorResponse(msg, t);
++            } catch (CommandExecutionException ce) {
++                // Intentional business-level failure — surface to the client
++                // but don't pollute the error log.
++                sendErrorResponse(msg, ce);
++            } catch (Exception e) {
++                Ln.e("Execution of command type=" + msg.getType() + " failed", e);
++                sendErrorResponse(msg, e);
++            } catch (Error err) {
++                Ln.e("Execution of command type=" + msg.getType() + " unrecoverable", err);
++                throw err;
 +            }
 +        };
 +
@@ -356,14 +363,14 @@ index 00000000..0d2744b6
 +        }
 +    }
 +
-+    private void sendErrorResponse(ControlMessage msg, Throwable t) {
++    private void sendErrorResponse(ControlMessage msg, Exception e) {
 +        if (sender != null) {
 +            try {
-+                String errorMsg = t.getMessage() != null ? t.getMessage() : t.toString();
++                String errorMsg = e.getMessage() != null ? e.getMessage() : e.toString();
 +                DeviceMessage response = DaemonDeviceMessages.createGenericResponse(payload(msg).getSequence(), -1, -1, errorMsg);
 +                sender.send(response);
-+            } catch (Exception e) {
-+                Ln.e("Failed to send error response", e);
++            } catch (Exception sendEx) {
++                Ln.e("Failed to send error response", sendEx);
 +            }
 +        }
 +    }
