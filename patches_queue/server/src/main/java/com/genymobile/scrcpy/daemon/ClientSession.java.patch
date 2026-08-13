@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..0031a955
+index 00000000..0cfaca05
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,478 @@
+@@ -0,0 +1,484 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -142,10 +142,13 @@ index 00000000..0031a955
 +                    Ln.w("Session[" + sessionId + "]: unhandled message type in negotiation: " + msg.getType());
 +                }
 +            }
-+        } catch (Throwable t) {
++        } catch (Exception e) {
 +            if (!exited.get()) {
-+                Ln.e("Session[" + sessionId + "]: error in negotiation loop", t);
++                Ln.e("Session[" + sessionId + "]: error in negotiation loop", e);
 +            }
++        } catch (Error err) {
++            Ln.e("Session[" + sessionId + "]: negotiation loop unrecoverable", err);
++            throw err;
 +        } finally {
 +            if (negotiationSender != null) {
 +                negotiationSender.stop();
@@ -174,11 +177,11 @@ index 00000000..0031a955
 +    public void configure(String optionsKv, int legacyRolesMask,
 +                          List<DaemonControlMessage.RoleEntry> rolesEntries) throws Exception {
 +        if (exited.get() || phase == PHASE_CLOSED) {
-+            throw new RuntimeException("Session already exited");
++            throw new IllegalStateException("Session already exited");
 +        }
 +        synchronized (videoControllers) {
 +            if (!videoControllers.isEmpty()) {
-+                throw new RuntimeException("Cannot configure session after video streams started");
++                throw new IllegalStateException("Cannot configure session after video streams started");
 +            }
 +        }
 +
@@ -341,9 +344,12 @@ index 00000000..0031a955
 +                        + displayId + ", fatal=" + fatalError);
 +                finalCtrl.stop();
 +            });
-+        } catch (Throwable t) {
-+            Ln.e("Session[" + sessionId + "]: failed to initialize scrcpy controller displayId=" + displayId, t);
++        } catch (Exception e) {
++            Ln.e("Session[" + sessionId + "]: failed to initialize scrcpy controller displayId=" + displayId, e);
 +            try { socket.close(); } catch (IOException ignored) {}
++        } catch (Error err) {
++            Ln.e("Session[" + sessionId + "]: controller initialization unrecoverable", err);
++            throw err;
 +        }
 +    }
 +

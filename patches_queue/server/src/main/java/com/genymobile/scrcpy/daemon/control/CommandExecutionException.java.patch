@@ -1,0 +1,39 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/CommandExecutionException.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/CommandExecutionException.java
+new file mode 100644
+index 00000000..3fba1bab
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/CommandExecutionException.java
+@@ -0,0 +1,33 @@
++package com.genymobile.scrcpy.daemon.control;
++
++/**
++ * Business-level error from a daemon command handler.
++ *
++ * <p>Previously handlers signalled failure by throwing {@link RuntimeException},
++ * which required a blanket {@code catch (Throwable)} in the dispatcher. This
++ * typed exception lets the dispatcher distinguish intentional business errors
++ * from genuine programmer mistakes and propagate {@link Error} / unexpected
++ * exceptions correctly.
++ */
++public class CommandExecutionException extends Exception {
++
++    private final int code;
++
++    public CommandExecutionException(int code, String message) {
++        super(message);
++        this.code = code;
++    }
++
++    public CommandExecutionException(String message) {
++        this(-1, message);
++    }
++
++    public CommandExecutionException(Throwable cause) {
++        super(cause);
++        this.code = -1;
++    }
++
++    public int getCode() {
++        return code;
++    }
++}

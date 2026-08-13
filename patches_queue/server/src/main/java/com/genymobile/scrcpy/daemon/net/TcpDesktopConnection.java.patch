@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..8007f25c
+index 00000000..130d7241
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,400 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -112,8 +112,12 @@ index 00000000..8007f25c
 +    private final Socket negotiationSocket;
 +    private final ControlChannel negotiationChannel;
 +
-+    // Role channels are keyed by (role, displayId). Volatile for safe publish
-+    // from the accept thread; mutations are synchronized on the map itself.
++    // Role channels are keyed by (role, displayId). A single lock protects
++    // both maps so the bindControlSocket path (which mutates both atomically)
++    // never risks a lock-order deadlock. Operations that only touch one map
++    // still go through this lock — the per-op cost is negligible (HashMap
++    // put/remove/get) and correctness trumps the speculative parallelism.
++    private final Object lock = new Object();
 +    private final Map<RoleDisplayKey, FdChannel> fdChannels = new HashMap<>();
 +    private final Map<RoleDisplayKey, ControlChannel> controlChannels = new HashMap<>();
 +
@@ -141,21 +145,17 @@ index 00000000..8007f25c
 +
 +    public ControlChannel bindControlSocket(int displayId, Socket socket) throws IOException {
 +        RoleDisplayKey key = new RoleDisplayKey(ROLE_CONTROL, displayId);
-+        synchronized (controlChannels) {
++        synchronized (lock) {
 +            ControlChannel prev = controlChannels.remove(key);
 +            if (prev != null) {
-+                // Close the stale underlying socket remembered in fdChannels.
-+                synchronized (fdChannels) {
-+                    FdChannel stale = fdChannels.remove(key);
-+                    if (stale != null) closeQuietly(stale.socket);
++                FdChannel stale = fdChannels.remove(key);
++                if (stale != null) {
++                    closeQuietly(stale.socket);
 +                }
 +            }
 +            ControlChannel ch = new ControlChannel(socket.getInputStream(), socket.getOutputStream());
 +            controlChannels.put(key, ch);
-+            // Remember the raw socket in fdChannels so shutdown/close iterates it.
-+            synchronized (fdChannels) {
-+                fdChannels.put(key, new FdChannel(socket, null));
-+            }
++            fdChannels.put(key, new FdChannel(socket, null));
 +            Ln.i("TcpDesktopConnection[" + sessionId + "]: control socket bound " + key);
 +            return ch;
 +        }
@@ -165,7 +165,7 @@ index 00000000..8007f25c
 +        RoleDisplayKey key = new RoleDisplayKey(ROLE_VIDEO, displayId);
 +        FileDescriptor fd = getFileDescriptor(socket);
 +        FdChannel ch = new FdChannel(socket, fd);
-+        synchronized (fdChannels) {
++        synchronized (lock) {
 +            FdChannel prev = fdChannels.put(key, ch);
 +            if (prev != null) {
 +                closeQuietly(prev.socket);
@@ -179,7 +179,7 @@ index 00000000..8007f25c
 +        RoleDisplayKey key = new RoleDisplayKey(ROLE_AUDIO, displayId);
 +        FileDescriptor fd = getFileDescriptor(socket);
 +        FdChannel ch = new FdChannel(socket, fd);
-+        synchronized (fdChannels) {
++        synchronized (lock) {
 +            FdChannel prev = fdChannels.put(key, ch);
 +            if (prev != null) {
 +                closeQuietly(prev.socket);
@@ -190,35 +190,34 @@ index 00000000..8007f25c
 +    }
 +
 +    public ControlChannel getControlChannel(int displayId) {
-+        synchronized (controlChannels) {
++        synchronized (lock) {
 +            return controlChannels.get(new RoleDisplayKey(ROLE_CONTROL, displayId));
 +        }
 +    }
 +
 +    public FdChannel getVideoChannel(int displayId) {
-+        synchronized (fdChannels) {
++        synchronized (lock) {
 +            return fdChannels.get(new RoleDisplayKey(ROLE_VIDEO, displayId));
 +        }
 +    }
 +
 +    public FdChannel getAudioChannel(int displayId) {
-+        synchronized (fdChannels) {
++        synchronized (lock) {
 +            return fdChannels.get(new RoleDisplayKey(ROLE_AUDIO, displayId));
 +        }
 +    }
 +
 +    /** Snapshot of currently bound (role,displayId) keys — stable for iteration. */
 +    public List<RoleDisplayKey> listBoundKeys() {
-+        List<RoleDisplayKey> keys = new ArrayList<>();
-+        synchronized (fdChannels) {
-+            keys.addAll(fdChannels.keySet());
-+        }
-+        synchronized (controlChannels) {
++        synchronized (lock) {
++            List<RoleDisplayKey> keys = new ArrayList<>(fdChannels.keySet());
 +            for (RoleDisplayKey k : controlChannels.keySet()) {
-+                if (!keys.contains(k)) keys.add(k);
++                if (!keys.contains(k)) {
++                    keys.add(k);
++                }
 +            }
++            return Collections.unmodifiableList(keys);
 +        }
-+        return Collections.unmodifiableList(keys);
 +    }
 +
 +    // ------------------------------------------------------------------
@@ -227,11 +226,12 @@ index 00000000..8007f25c
 +
 +    public void shutdown() {
 +        shutdownSocket(negotiationSocket);
-+        List<RoleDisplayKey> keys = listBoundKeys();
-+        for (RoleDisplayKey k : keys) {
-+            FdChannel ch;
-+            synchronized (fdChannels) { ch = fdChannels.get(k); }
-+            if (ch != null) shutdownSocket(ch.socket);
++        List<FdChannel> channels;
++        synchronized (lock) {
++            channels = new ArrayList<>(fdChannels.values());
++        }
++        for (FdChannel ch : channels) {
++            shutdownSocket(ch.socket);
 +        }
 +    }
 +
@@ -239,11 +239,11 @@ index 00000000..8007f25c
 +    public void close() {
 +        closeQuietly(negotiationSocket);
 +        List<FdChannel> all;
-+        synchronized (fdChannels) {
++        synchronized (lock) {
 +            all = new ArrayList<>(fdChannels.values());
 +            fdChannels.clear();
 +        }
-+        synchronized (controlChannels) {
++        synchronized (lock) {
 +            controlChannels.clear();
 +        }
 +        for (FdChannel ch : all) {
@@ -299,14 +299,12 @@ index 00000000..8007f25c
 +
 +    public static boolean authenticate(Socket socket, String expectedToken) throws IOException {
 +        InputStream in = socket.getInputStream();
-+        int b1 = in.read();
-+        int b2 = in.read();
-+        int b3 = in.read();
-+        int b4 = in.read();
-+        if (b1 < 0 || b2 < 0 || b3 < 0 || b4 < 0) {
++        int len;
++        try {
++            len = readInt32(in);
++        } catch (IOException e) {
 +            return false;
 +        }
-+        int len = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
 +        if (len < 0 || len > 1024) {
 +            return false;
 +        }
