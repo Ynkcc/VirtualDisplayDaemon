@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java b/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
-index 1be04c3a..cd4dbf1a 100644
+index 1be04c3a..a0a85dfd 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
 @@ -48,7 +48,10 @@ public final class DisplayManager {
@@ -13,7 +13,25 @@ index 1be04c3a..cd4dbf1a 100644
  
      static DisplayManager create() {
          try {
-@@ -174,24 +177,115 @@ public final class DisplayManager {
+@@ -169,29 +172,131 @@ public final class DisplayManager {
+     }
+ 
+     public VirtualDisplay createVirtualDisplay(String name, int width, int height, int displayIdToMirror, Surface surface) throws Exception {
+-        Method method = getCreateVirtualDisplayMethod();
+-        return (VirtualDisplay) method.invoke(null, name, width, height, displayIdToMirror, surface);
++        // Construct DisplayManager via Context.
++        if (displayManagerCtor == null) {
++            displayManagerCtor = android.hardware.display.DisplayManager.class.getDeclaredConstructor(Context.class);
++            displayManagerCtor.setAccessible(true);
++        }
++        android.hardware.display.DisplayManager dm =
++                (android.hardware.display.DisplayManager) displayManagerCtor.newInstance(FakeContext.get());
++
++        if (createVirtualDisplayMethod == null) {
++            createVirtualDisplayMethod = android.hardware.display.DisplayManager.class
++                    .getMethod("createVirtualDisplay", String.class, int.class, int.class, int.class, Surface.class);
++        }
++        return (VirtualDisplay) createVirtualDisplayMethod.invoke(dm, name, width, height, displayIdToMirror, surface);
      }
  
      public VirtualDisplay createNewVirtualDisplay(String name, int width, int height, int dpi, Surface surface, int flags) throws Exception {

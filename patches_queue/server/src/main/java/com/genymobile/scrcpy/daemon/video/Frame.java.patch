@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/Frame.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/Frame.java
 new file mode 100644
-index 00000000..aee5d22c
+index 00000000..9fb33eb6
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/Frame.java
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,101 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import java.nio.ByteBuffer;

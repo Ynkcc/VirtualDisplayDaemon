@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-index 0768181a..6143a59f 100644
+index 0768181a..729c918e 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 @@ -31,12 +31,35 @@ import java.util.Locale;
@@ -111,7 +111,7 @@ index 0768181a..6143a59f 100644
                  }
              }
          }
-@@ -168,18 +203,88 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -168,18 +203,97 @@ public class ScreenCapture extends SurfaceCapture {
              } else {
                  // The positions are relative to the virtual display, not the original display (so use inputSize, not deviceSize!)
                  positionMapper = PositionMapper.create(videoSize, transform, inputSize);
@@ -161,8 +161,13 @@ index 0768181a..6143a59f 100644
 +                //  - virtualDisplay != null (daemonVD is set) AND displayId != 0 → use VD's real id + inputSize
 +                //  - displayId == 0 → main display path
 +                if (displayId == 0) {
-+                    Size deviceSize = displayInfo != null ? displayInfo.getSize()
-+                            : new Size(daemonVD.getDisplay().getWidth(), daemonVD.getDisplay().getHeight());
++                    Size deviceSize;
++                    if (displayInfo != null) {
++                        deviceSize = displayInfo.getSize();
++                    } else {
++                        com.genymobile.scrcpy.display.DisplayInfo info = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
++                        deviceSize = info != null ? info.getSize() : videoSize;
++                    }
 +                    positionMapper = PositionMapper.create(videoSize, transform, deviceSize);
 +                    virtualDisplayId = displayId;
 +                } else {
@@ -171,8 +176,12 @@ index 0768181a..6143a59f 100644
 +                    // otherwise the virtual display's own logical size (displaySize).
 +                    Size inputSize;
 +                    if (transform != null) {
-+                        inputSize = displayInfo != null ? displayInfo.getSize()
-+                                : new Size(daemonVD.getDisplay().getWidth(), daemonVD.getDisplay().getHeight());
++                        if (displayInfo != null) {
++                            inputSize = displayInfo.getSize();
++                        } else {
++                            com.genymobile.scrcpy.display.DisplayInfo info = ServiceManager.getDisplayManager().getDisplayInfo(daemonVD.getDisplay().getDisplayId());
++                            inputSize = info != null ? info.getSize() : videoSize;
++                        }
 +                    } else {
 +                        inputSize = videoSize;
 +                    }
@@ -201,7 +210,7 @@ index 0768181a..6143a59f 100644
      }
  
      @Override
-@@ -191,8 +296,13 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -191,8 +305,13 @@ public class ScreenCapture extends SurfaceCapture {
              display = null;
          }
          if (virtualDisplay != null) {

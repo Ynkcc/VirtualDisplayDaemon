@@ -1,5 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
 new file mode 100644
+index 00000000..4ecdac71
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
 @@ -0,0 +1,155 @@

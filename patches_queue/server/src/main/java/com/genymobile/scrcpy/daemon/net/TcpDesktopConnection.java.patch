@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..c647d3e4
+index 00000000..8007f25c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,402 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -166,7 +166,10 @@ index 00000000..c647d3e4
 +        FileDescriptor fd = getFileDescriptor(socket);
 +        FdChannel ch = new FdChannel(socket, fd);
 +        synchronized (fdChannels) {
-+            fdChannels.put(key, ch);
++            FdChannel prev = fdChannels.put(key, ch);
++            if (prev != null) {
++                closeQuietly(prev.socket);
++            }
 +            Ln.i("TcpDesktopConnection[" + sessionId + "]: video socket bound " + key + ", fd=" + fd);
 +        }
 +        return ch;
@@ -177,7 +180,10 @@ index 00000000..c647d3e4
 +        FileDescriptor fd = getFileDescriptor(socket);
 +        FdChannel ch = new FdChannel(socket, fd);
 +        synchronized (fdChannels) {
-+            fdChannels.put(key, ch);
++            FdChannel prev = fdChannels.put(key, ch);
++            if (prev != null) {
++                closeQuietly(prev.socket);
++            }
 +            Ln.i("TcpDesktopConnection[" + sessionId + "]: audio socket bound " + key + ", fd=" + fd);
 +        }
 +        return ch;

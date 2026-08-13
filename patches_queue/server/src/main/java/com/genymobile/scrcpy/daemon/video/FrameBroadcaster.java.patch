@@ -1,5 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
+index 00000000..f17277d0
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 @@ -0,0 +1,283 @@

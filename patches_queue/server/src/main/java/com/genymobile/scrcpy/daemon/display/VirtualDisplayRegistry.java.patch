@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..3d30db81
+index 00000000..8dbf6232
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,505 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -93,7 +93,13 @@ index 00000000..3d30db81
 +            }, new Handler(readerThread.getLooper()));
 +
 +            if (mirrorDisplayId >= 0) {
-+                // Use the 5-arg createVirtualDisplay to mirror a specific display
++                // Use the 5-arg createVirtualDisplay to mirror a specific display.
++                // Note: the hidden 5-arg API does not take a DPI parameter; it
++                // typically inherits density from the mirrored source.
++                if (dpi > 0) {
++                    Ln.w("VirtualDisplayRegistry: mirroring displayId=" + mirrorDisplayId
++                            + " — ignoring requested DPI=" + dpi + " (not supported by mirroring API)");
++                }
 +                vd = ServiceManager.getDisplayManager()
 +                        .createVirtualDisplay(name, width, height, mirrorDisplayId, imageReader.getSurface());
 +            } else {
