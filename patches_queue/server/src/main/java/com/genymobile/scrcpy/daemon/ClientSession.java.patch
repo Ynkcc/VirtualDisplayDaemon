@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..0031a955
+index 00000000..c7818f6e
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,478 @@
+@@ -0,0 +1,472 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -124,15 +124,9 @@ index 00000000..0031a955
 +                ControlMessage msg;
 +                try {
 +                    msg = connection.getNegotiationChannel().recv();
-+                } catch (java.net.SocketTimeoutException ste) {
-+                    // SO_TIMEOUT on the negotiation socket fired. This is
-+                    // expected for idle long-lived connections (the client
-+                    // may go minutes without sending a command). Log at
-+                    // DEBUG level and keep the loop alive — the next recv
-+                    // will block again until either a real message arrives
-+                    // or the socket is genuinely closed by the peer.
-+                    Ln.d("Session[" + sessionId + "]: negotiation socket idle timeout, continuing to wait");
-+                    continue;
++                } catch (IOException e) {
++                    Ln.d("Session[" + sessionId + "]: negotiation socket closed or read error: " + e.getMessage());
++                    break;
 +                }
 +                if (msg == null) {
 +                    break;

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
 new file mode 100644
-index 00000000..30a79dec
+index 00000000..f7445e3f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,284 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import android.os.Looper;
@@ -30,14 +30,6 @@ index 00000000..30a79dec
 +public final class DaemonServer {
 +
 +    private static final int MAX_SESSIONS = 16;
-+
-+    /** Socket read timeout (ms) applied to all accepted sockets.
-+     *  Protects acceptLoop and per-session recv loops from indefinite
-+     *  blocking on half-open connections. The value is long enough that
-+     *  legitimate SLOW commands (create VD, list apps, start activity)
-+     *  can still run end-to-end, but short enough to break a dead socket
-+     *  within an operational window. */
-+    private static final int SOCKET_READ_TIMEOUT_MS = 60_000;
 +
 +    private final Options options;
 +    private final DaemonOptions daemonOptions;
@@ -116,13 +108,6 @@ index 00000000..30a79dec
 +        while (running.get()) {
 +            try {
 +                Socket socket = TcpServerSocketListener.acceptNextSocket();
-+                try {
-+                    socket.setSoTimeout(SOCKET_READ_TIMEOUT_MS);
-+                } catch (Exception ignored) {
-+                    // Some socket implementations may not support SO_TIMEOUT;
-+                    // continue without it — the accept path already has
-+                    // defense-in-depth against half-open connections.
-+                }
 +                String ip = socket.getInetAddress().getHostAddress();
 +                if (blacklistedIps.contains(ip)) {
 +                    Ln.w("Connection rejected from blacklisted IP: " + ip);
