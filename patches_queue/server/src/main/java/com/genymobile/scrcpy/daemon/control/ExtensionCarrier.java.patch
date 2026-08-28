@@ -1,0 +1,25 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/ExtensionCarrier.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/ExtensionCarrier.java
+new file mode 100644
+index 00000000..0d5c68ef
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/ExtensionCarrier.java
+@@ -0,0 +1,19 @@
++package com.genymobile.scrcpy.daemon.control;
++
++/**
++ * Marks the upstream message envelopes ({@link com.genymobile.scrcpy.control.ControlMessage}
++ * and {@link com.genymobile.scrcpy.control.DeviceMessage}) as capable of carrying an opaque
++ * daemon-mode extension payload.
++ *
++ * <p>Both upstream envelope classes already expose identical
++ * {@code getExtensionPayload()}/{@code setExtensionPayload(Object)} accessors (added by the
++ * daemon patches) to keep the upstream classes free of daemon-specific fields. This interface
++ * lets the daemon message factory ({@link DaemonMessages}) treat both envelopes uniformly, so
++ * the {@code payload}/{@code envelope} scaffolding exists in exactly one place.
++ */
++public interface ExtensionCarrier {
++
++    Object getExtensionPayload();
++
++    void setExtensionPayload(Object extensionPayload);
++}

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..56dc6543
+index 00000000..0c3296f8
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,318 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -104,8 +104,7 @@ index 00000000..56dc6543
 +        // thread's fan-out.
 +        List<Frame> cached = new ArrayList<>(3);
 +        synchronized (lock) {
-+            subscribers.add(sub);
-+            subscribersBySession.put(sessionId, sub);
++            registerSubscriber(sub);
 +            if (cachedHeader != null) {
 +                cachedHeader.retain();
 +                cached.add(cachedHeader);
@@ -136,8 +135,7 @@ index 00000000..56dc6543
 +            return;
 +        }
 +        synchronized (lock) {
-+            subscribers.remove(sub);
-+            subscribersBySession.remove(sub.getSessionId());
++            deregisterSubscriber(sub);
 +        }
 +        sub.close();
 +        Ln.i("FrameBroadcaster[" + displayId + "]: subscriber " + sub.getSessionId()
@@ -145,11 +143,10 @@ index 00000000..56dc6543
 +    }
 +
 +    int unsubscribeBySession(int sessionId) {
-+        VideoSubscriber sub;
 +        synchronized (lock) {
-+            sub = subscribersBySession.remove(sessionId);
++            VideoSubscriber sub = subscribersBySession.get(sessionId);
 +            if (sub != null) {
-+                subscribers.remove(sub);
++                deregisterSubscriber(sub);
 +            }
 +            return subscribers.size();
 +        }
@@ -286,18 +283,42 @@ index 00000000..56dc6543
 +            VideoSubscriber sub = it.next();
 +            if (!sub.isAlive()) {
 +                Ln.i("FrameBroadcaster[" + displayId + "]: reaping dead subscriber " + sub.getSessionId());
-+                it.remove();
-+                subscribersBySession.remove(sub.getSessionId());
-+                sub.close();
++                reap(it, sub);
 +                continue;
 +            }
 +            f.retain();
 +            sub.deliver(f);
 +            if (!sub.isAlive()) {
-+                it.remove();
-+                subscribersBySession.remove(sub.getSessionId());
-+                sub.close();
++                reap(it, sub);
 +            }
 +        }
++    }
++
++    /**
++     * Add a subscriber to both bookkeeping structures. Call under {@link #lock}.
++     */
++    private void registerSubscriber(VideoSubscriber sub) {
++        subscribers.add(sub);
++        subscribersBySession.put(sub.getSessionId(), sub);
++    }
++
++    /**
++     * Remove a subscriber from both bookkeeping structures (by object identity). Call under
++     * {@link #lock}. The caller decides when to {@code close()} the subscriber.
++     */
++    private void deregisterSubscriber(VideoSubscriber sub) {
++        subscribers.remove(sub);
++        subscribersBySession.remove(sub.getSessionId());
++    }
++
++    /**
++     * Reap a subscriber that has died during fan-out: remove it from the iteration via
++     * {@code Iterator.remove()} (so the iteration stays valid), drop it from the by-session
++     * index, and close it. Call under {@link #lock}.
++     */
++    private void reap(Iterator<VideoSubscriber> it, VideoSubscriber sub) {
++        it.remove();
++        subscribersBySession.remove(sub.getSessionId());
++        sub.close();
 +    }
 +}

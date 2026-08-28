@@ -1,14 +1,52 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessages.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessages.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java
 new file mode 100644
-index 00000000..e4567c79
+index 00000000..5af9b224
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessages.java
-@@ -0,0 +1,206 @@
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java
+@@ -0,0 +1,292 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
++import com.genymobile.scrcpy.control.DeviceMessage;
++import com.genymobile.scrcpy.display.DisplayInfo;
++import com.genymobile.scrcpy.model.DeviceApp;
 +
-+public final class DaemonControlMessages {
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.List;
++
++/**
++ * Single factory for daemon-mode control/device messages: wire-type constants (1xx responses,
++ * 2xx requests), the shared {@code payload}/{@code envelope} scaffolding for both envelopes,
++ * and all {@code createXxx} builders.
++ *
++ * <p>This unifies the former {@code DaemonControlMessages} (requests + 2xx types) and
++ * {@code DaemonDeviceMessages} (responses + 1xx types). Both reuse the upstream envelope classes
++ * ({@link ControlMessage} / {@link DeviceMessage}) as carriers — the type-specific DTO
++ * ({@link DaemonControlMessage} / {@link DaemonDeviceMessage}) is attached via
++ * {@link ExtensionCarrier#setExtensionPayload(Object)} — so the upstream classes stay free of
++ * daemon-specific fields and upstream updates merge cleanly.
++ */
++public final class DaemonMessages {
++
++    private DaemonMessages() {
++    }
++
++    // ------------------------------------------------------------------
++    // 1xx: device responses (client-visible)
++    // ------------------------------------------------------------------
++
++    public static final int TYPE_RESPONSE_GENERIC = 100;
++    public static final int TYPE_RESPONSE_ACTIVE_DISPLAYS = 101;
++    // Enriched variant of 101: carries per-display {id,width,height,dpi,rotation}.
++    public static final int TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS = 102;
++    // List of installed apps (non-system with launch intent) for the remote device.
++    // Enables uniform AppSelectionDialog on both local and remote nodes.
++    public static final int TYPE_RESPONSE_APPS_LIST = 103;
++
++    // ------------------------------------------------------------------
++    // 2xx: daemon-mode control requests (client → daemon)
++    // ------------------------------------------------------------------
 +
 +    public static final int TYPE_CREATE_VIRTUAL_DISPLAY = 201;
 +    public static final int TYPE_RELEASE_VIRTUAL_DISPLAY = 202;
@@ -25,8 +63,8 @@ index 00000000..e4567c79
 +    public static final int TYPE_IS_ROTATION_FROZEN = 214;
 +
 +    // Enriched active-display query: returns per-display {id,w,h,dpi,rotation}
-+    // via DaemonDeviceMessages.TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS (102).
-+    // The legacy TYPE_GET_ACTIVE_DISPLAY_IDS (205) / 101 path is kept unchanged.
++    // via TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS (102). The legacy
++    // TYPE_GET_ACTIVE_DISPLAY_IDS (205) / 101 path is kept unchanged.
 +    public static final int TYPE_GET_ACTIVE_DISPLAY_INFOS = 215;
 +
 +    // Negotiation-phase session configuration. The client MUST send this on the
@@ -39,9 +77,7 @@ index 00000000..e4567c79
 +    public static final int TYPE_CONFIGURE_SESSION = 216;
 +
 +    // Launch the device's default home launcher on a specific virtual display.
-+    // Payload: int32 displayId. Server resolves the home component itself
-+    // (so the client doesn't need to query the remote device's launcher list
-+    // — unifies local and remote node behaviour).
++    // Payload: int32 displayId. Server resolves the home component itself.
 +    public static final int TYPE_LAUNCH_HOME = 217;
 +
 +    // List installed apps on the device. Returns the list of non-system apps
@@ -53,11 +89,18 @@ index 00000000..e4567c79
 +    // echoing the sequence number.
 +    public static final int TYPE_PING = 219;
 +
-+    private DaemonControlMessages() {
-+    }
++    // ------------------------------------------------------------------
++    // Shared payload / envelope scaffolding
++    // ------------------------------------------------------------------
 +
++    /** Extract the daemon control DTO attached to a request envelope. */
 +    public static DaemonControlMessage payload(ControlMessage msg) {
 +        return (DaemonControlMessage) msg.getExtensionPayload();
++    }
++
++    /** Extract the daemon device DTO attached to a response envelope. */
++    public static DaemonDeviceMessage payload(DeviceMessage msg) {
++        return (DaemonDeviceMessage) msg.getExtensionPayload();
 +    }
 +
 +    private static ControlMessage envelope(int type, DaemonControlMessage dto) {
@@ -65,6 +108,16 @@ index 00000000..e4567c79
 +        msg.setExtensionPayload(dto);
 +        return msg;
 +    }
++
++    private static DeviceMessage envelope(int type, DaemonDeviceMessage dto) {
++        DeviceMessage msg = DeviceMessage.createEmpty(type);
++        msg.setExtensionPayload(dto);
++        return msg;
++    }
++
++    // ------------------------------------------------------------------
++    // Request builders
++    // ------------------------------------------------------------------
 +
 +    public static ControlMessage createCreateVirtualDisplay(long sequence, String name, int width, int height, int dpi, int flags) {
 +        return createCreateVirtualDisplay(sequence, name, width, height, dpi, flags, -1);
@@ -174,15 +227,14 @@ index 00000000..e4567c79
 +    /**
 +     * Multi-role multi-display variant of {@link #createConfigureSession(long, String, int)}.
 +     *
-+     * <p>Declares the exact set of (role, displayId) sockets the client
-+     * intends to open. See {@link DaemonControlMessage.RoleEntry} for
-+     * semantics. When non-empty, {@code rolesEntries} takes precedence over
-+     * the legacy 3-bit mask; the mask is preserved in the payload so older
-+     * readers that only inspect the mask still see which role *types* are
++     * <p>Declares the exact set of (role, displayId) sockets the client intends to open. See
++     * {@link DaemonControlMessage.RoleEntry} for semantics. When non-empty,
++     * {@code rolesEntries} takes precedence over the legacy 3-bit mask; the mask is preserved in
++     * the payload so older readers that only inspect the mask still see which role *types* are
 +     * intended.
 +     */
 +    public static ControlMessage createConfigureSession(long sequence, String optionsKv, int rolesMask,
-+                                                        java.util.List<DaemonControlMessage.RoleEntry> rolesEntries) {
++                                                        List<DaemonControlMessage.RoleEntry> rolesEntries) {
 +        DaemonControlMessage dto = new DaemonControlMessage();
 +        dto.setSequence(sequence);
 +        dto.setOptionsKv(optionsKv != null ? optionsKv : "");
@@ -208,5 +260,39 @@ index 00000000..e4567c79
 +        DaemonControlMessage dto = new DaemonControlMessage();
 +        dto.setSequence(sequence);
 +        return envelope(TYPE_PING, dto);
++    }
++
++    // ------------------------------------------------------------------
++    // Response builders
++    // ------------------------------------------------------------------
++
++    public static DeviceMessage createGenericResponse(long sequence, int statusCode, int displayId, String responseString) {
++        DaemonDeviceMessage dto = new DaemonDeviceMessage();
++        dto.setSequence(sequence);
++        dto.setStatusCode(statusCode);
++        dto.setDisplayId(displayId);
++        dto.setText(responseString);
++        return envelope(TYPE_RESPONSE_GENERIC, dto);
++    }
++
++    public static DeviceMessage createActiveDisplaysResponse(long sequence, int[] displayIds) {
++        DaemonDeviceMessage dto = new DaemonDeviceMessage();
++        dto.setSequence(sequence);
++        dto.setDisplayIds(displayIds);
++        return envelope(TYPE_RESPONSE_ACTIVE_DISPLAYS, dto);
++    }
++
++    public static DeviceMessage createActiveDisplayInfosResponse(long sequence, DisplayInfo[] infos) {
++        DaemonDeviceMessage dto = new DaemonDeviceMessage();
++        dto.setSequence(sequence);
++        dto.setDisplayInfos(infos);
++        return envelope(TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS, dto);
++    }
++
++    public static DeviceMessage createAppsListResponse(long sequence, List<DeviceApp> apps) {
++        DaemonDeviceMessage dto = new DaemonDeviceMessage();
++        dto.setSequence(sequence);
++        dto.setApps(apps);
++        return envelope(TYPE_RESPONSE_APPS_LIST, dto);
 +    }
 +}

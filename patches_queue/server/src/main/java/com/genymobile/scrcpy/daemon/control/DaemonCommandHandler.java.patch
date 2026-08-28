@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..17611fef
+index 00000000..75aaa12c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 @@ -0,0 +1,382 @@
@@ -150,7 +150,7 @@ index 00000000..17611fef
 +    }
 +
 +    private static DaemonControlMessage payload(ControlMessage msg) {
-+        return DaemonControlMessages.payload(msg);
++        return DaemonMessages.payload(msg);
 +    }
 +
 +    private void register(int type, ExecutionPolicy policy, CommandHandler handler) {
@@ -166,7 +166,7 @@ index 00000000..17611fef
 +    }
 +
 +    private void initDisplayCommands() {
-+        register(DaemonControlMessages.TYPE_CREATE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_CREATE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int newDisplayId = registry.createVirtualDisplay(
 +                    dto.getText(), dto.getWidth(), dto.getHeight(), dto.getDpi(), dto.getFlags(), dto.getDisplayId());
@@ -180,7 +180,7 @@ index 00000000..17611fef
 +            sendSuccessResponse(msg, newDisplayId, "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_RELEASE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_RELEASE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            // Manual removal: force-destroy the display regardless of session refs,
 +            // clearing the daemon-owned persistent reference too. This is the ONLY
@@ -191,7 +191,7 @@ index 00000000..17611fef
 +            sendSuccessResponse(msg, dto.getDisplayId(), destroyed ? "DESTROYED" : "FAILED");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_RESIZE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_RESIZE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int displayId = dto.getDisplayId();
 +            boolean ok = registry.resizeVirtualDisplay(
@@ -213,44 +213,44 @@ index 00000000..17611fef
 +            sendSuccessResponse(msg, displayId, "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_IDS, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_IDS, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            int[] ids = registry.getActiveDisplayIds();
 +            if (ctx.getSender() != null) {
-+                DeviceMessage response = DaemonDeviceMessages.createActiveDisplaysResponse(payload(msg).getSequence(), ids);
++                DeviceMessage response = DaemonMessages.createActiveDisplaysResponse(payload(msg).getSequence(), ids);
 +                ctx.getSender().send(response);
 +            }
 +        });
 +
-+        register(DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            com.genymobile.scrcpy.display.DisplayInfo[] infos = registry.getActiveDisplayInfos();
 +            if (ctx.getSender() != null) {
-+                DeviceMessage response = DaemonDeviceMessages.createActiveDisplayInfosResponse(payload(msg).getSequence(), infos);
++                DeviceMessage response = DaemonMessages.createActiveDisplayInfosResponse(payload(msg).getSequence(), infos);
 +                ctx.getSender().send(response);
 +            }
 +        });
 +    }
 +
 +    private void initRotationCommands() {
-+        register(DaemonControlMessages.TYPE_GET_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_GET_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int rotation = rotationController.getRotation(dto.getDisplayId());
 +            sendSuccessResponse(msg, dto.getDisplayId(), String.valueOf(rotation));
 +        });
 +
-+        register(DaemonControlMessages.TYPE_FREEZE_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_FREEZE_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
-+            // rotation (0-3) carried in dto.getFlags() (see DaemonControlMessages).
++            // rotation (0-3) carried in dto.getFlags() (see DaemonMessages).
 +            rotationController.freeze(dto.getDisplayId(), dto.getFlags());
 +            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_THAW_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_THAW_ROTATION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            rotationController.thaw(dto.getDisplayId());
 +            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_IS_ROTATION_FROZEN, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_IS_ROTATION_FROZEN, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int frozen = rotationController.isFrozen(dto.getDisplayId());
 +            sendSuccessResponse(msg, dto.getDisplayId(), String.valueOf(frozen));
@@ -258,7 +258,7 @@ index 00000000..17611fef
 +    }
 +
 +    private void initSessionCommands() {
-+        register(DaemonControlMessages.TYPE_CONFIGURE_SESSION, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_CONFIGURE_SESSION, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            if (sessionConfigurator == null) {
 +                throw new RuntimeException("CONFIGURE_SESSION is only available on the negotiation channel");
 +            }
@@ -269,7 +269,7 @@ index 00000000..17611fef
 +    }
 +
 +    private void initAppCommands() {
-+        register(DaemonControlMessages.TYPE_START_ACTIVITY, ExecutionPolicy.SLOW, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_START_ACTIVITY, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int result = ActivityLauncher.startActivity(dto.getText(), dto.getDisplayId());
 +            if (result < 0) {
@@ -278,7 +278,7 @@ index 00000000..17611fef
 +            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_LAUNCH_HOME, ExecutionPolicy.SLOW, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_LAUNCH_HOME, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
 +            int result = ActivityLauncher.launchHome(dto.getDisplayId());
 +            if (result < 0) {
@@ -287,17 +287,17 @@ index 00000000..17611fef
 +            sendSuccessResponse(msg, dto.getDisplayId(), "OK");
 +        });
 +
-+        register(DaemonControlMessages.TYPE_LIST_APPS, ExecutionPolicy.SLOW, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_LIST_APPS, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            java.util.List<com.genymobile.scrcpy.model.DeviceApp> apps = AppLister.listInstalledApps();
 +            if (ctx.getSender() != null) {
-+                DeviceMessage response = DaemonDeviceMessages.createAppsListResponse(payload(msg).getSequence(), apps);
++                DeviceMessage response = DaemonMessages.createAppsListResponse(payload(msg).getSequence(), apps);
 +                ctx.getSender().send(response);
 +            }
 +        });
 +    }
 +
 +    private void initMiscCommands() {
-+        register(DaemonControlMessages.TYPE_EXIT_DAEMON, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_EXIT_DAEMON, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            Ln.i("handleExitDaemon: Quit request received, replying OK and shutting down...");
 +            sendSuccessResponse(msg, -1, "OK");
 +
@@ -316,7 +316,7 @@ index 00000000..17611fef
 +            });
 +        });
 +
-+        register(DaemonControlMessages.TYPE_PING, ExecutionPolicy.FAST, (msg, ctx) -> {
++        register(DaemonMessages.TYPE_PING, ExecutionPolicy.FAST, (msg, ctx) -> {
 +            sendSuccessResponse(msg, -1, "PONG");
 +        });
 +    }
@@ -359,7 +359,7 @@ index 00000000..17611fef
 +    private void sendSuccessResponse(ControlMessage msg, int extraData, String text) {
 +        if (sender != null) {
 +            try {
-+                DeviceMessage response = DaemonDeviceMessages.createGenericResponse(payload(msg).getSequence(), 0, extraData, text);
++                DeviceMessage response = DaemonMessages.createGenericResponse(payload(msg).getSequence(), 0, extraData, text);
 +                sender.send(response);
 +            } catch (Exception e) {
 +                Ln.e("Failed to send response", e);
@@ -378,7 +378,7 @@ index 00000000..17611fef
 +                if (t.getMessage() != null && !t.getMessage().isEmpty()) {
 +                    reason += ": " + t.getMessage();
 +                }
-+                DeviceMessage response = DaemonDeviceMessages.createGenericResponse(payload(msg).getSequence(), -1, -1, reason);
++                DeviceMessage response = DaemonMessages.createGenericResponse(payload(msg).getSequence(), -1, -1, reason);
 +                sender.send(response);
 +            } catch (Exception e) {
 +                Ln.e("Failed to send error response", e);

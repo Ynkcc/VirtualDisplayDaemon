@@ -1,8 +1,18 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessage.java b/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessage.java
-index 079a7a04..033ac97c 100644
+index 079a7a04..29b07494 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessage.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessage.java
-@@ -12,6 +12,10 @@ public final class DeviceMessage {
+@@ -1,6 +1,8 @@
+ package com.genymobile.scrcpy.control;
+ 
+-public final class DeviceMessage {
++import com.genymobile.scrcpy.daemon.control.ExtensionCarrier;
++
++public final class DeviceMessage implements ExtensionCarrier {
+ 
+     public static final int TYPE_CLIPBOARD = 0;
+     public static final int TYPE_ACK_CLIPBOARD = 1;
+@@ -12,6 +14,10 @@ public final class DeviceMessage {
      private int id;
      private byte[] data;
  
@@ -13,7 +23,7 @@ index 079a7a04..033ac97c 100644
      private DeviceMessage() {
      }
  
-@@ -37,6 +41,12 @@ public final class DeviceMessage {
+@@ -37,6 +43,12 @@ public final class DeviceMessage {
          return event;
      }
  
@@ -26,7 +36,7 @@ index 079a7a04..033ac97c 100644
      public int getType() {
          return type;
      }
-@@ -56,4 +66,12 @@ public final class DeviceMessage {
+@@ -56,4 +68,12 @@ public final class DeviceMessage {
      public byte[] getData() {
          return data;
      }

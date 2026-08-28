@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..54e85c43
+index 00000000..277e1915
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,494 @@
+@@ -0,0 +1,474 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -20,49 +20,44 @@ index 00000000..54e85c43
 +
 +import java.util.ArrayList;
 +import java.util.HashMap;
-+import java.util.Iterator;
 +import java.util.List;
 +import java.util.Map;
-+import java.util.concurrent.ConcurrentHashMap;
 +
-+public final class VirtualDisplayRegistry {
++public final class VirtualDisplayRegistry extends RefCountedDisplayRegistry {
 +
 +    public static final int PERSISTENT_SESSION_ID = -1;
 +
 +    private static final int IMAGE_READER_MAX_IMAGES = 5; // larger buffer to reduce frame drops
 +
 +    private final Map<Integer, VirtualDisplaySession> activeSessions = new HashMap<>();
-+    private final Object activeDisplaysLock = new Object();
 +
-+    // Step 3 (VD 所有权): displayId → (sessionId → refcount). Each acquire
-+    // increments the per-session count; each release decrements it. The display
-+    // is destroyed only when ALL sessions' counts drop to zero (i.e. the outer
-+    // map becomes empty). Using a refcount per session (rather than a Set)
-+    // correctly handles the case where a single session both creates the display
-+    // AND streams from it: the creator's ref and the streamer's ref are tracked
-+    // independently, so stopping the stream (one release) does NOT destroy the
-+    // display as long as the creator's ref remains. This is the "lossless
-+    // recovery" guarantee from refs/13 §7. Guarded by activeDisplaysLock.
-+    private final Map<Integer, Map<Integer, Integer>> displayUsers = new HashMap<>();
++    // Per-session reference counting (Step 3, VD 所有权) lives in the shared
++    // RefCountedDisplayRegistry base: displayId → (sessionId → refcount). The
++    // display is destroyed only when ALL sessions' counts drop to zero. Using a
++    // refcount per session (rather than a Set) correctly handles the case where
++    // a single session both creates the display AND streams from it: the
++    // creator's ref and the streamer's ref are tracked independently, so
++    // stopping the stream (one release) does NOT destroy the display as long as
++    // the creator's ref remains ("lossless recovery" from refs/13 §7).
 +
 +    public VirtualDisplayRegistry() {
 +    }
 +
 +    public VirtualDisplay getVirtualDisplay(int displayId) {
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            VirtualDisplaySession session = activeSessions.get(displayId);
 +            return session != null ? session.getVirtualDisplay() : null;
 +        }
 +    }
 +
 +    public VirtualDisplaySession getSession(int displayId) {
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            return activeSessions.get(displayId);
 +        }
 +    }
 +
 +    public boolean hasDisplay(int displayId) {
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            return activeSessions.containsKey(displayId);
 +        }
 +    }
@@ -117,7 +112,7 @@ index 00000000..54e85c43
 +            // A redundant requestDisplayPower() (only present on API 36+) is dead code
 +            // and would also be a no-op security/version-wise. See DisplayManager docs.
 +            VirtualDisplaySession session = new VirtualDisplaySession(displayId, name, vd, imageReader, readerThread, mirrorDisplayId);
-+            synchronized (activeDisplaysLock) {
++            synchronized (lock) {
 +                activeSessions.put(displayId, session);
 +            }
 +            Ln.i("VirtualDisplayRegistry: created virtual display id=" + displayId + " (" + width + "x" + height + "/" + dpi + ")");
@@ -170,9 +165,9 @@ index 00000000..54e85c43
 +     */
 +    public boolean releaseVirtualDisplay(int displayId, boolean moveTasksToDefaultDisplay) {
 +        VirtualDisplaySession session;
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            session = activeSessions.remove(displayId);
-+            displayUsers.remove(displayId); // also clear users (force-destroy path)
++            clearDisplay(displayId); // also clear users (force-destroy path)
 +        }
 +
 +        if (session != null) {
@@ -229,11 +224,10 @@ index 00000000..54e85c43
 +     * without destroying the display it created.
 +     */
 +    public void acquire(int displayId, int sessionId) {
-+        synchronized (activeDisplaysLock) {
-+            displayUsers.computeIfAbsent(displayId, k -> new HashMap<>())
-+                    .merge(sessionId, 1, Integer::sum);
-+            Ln.d("VirtualDisplayRegistry: acquire display id=" + displayId + " for session " + sessionId 
-+                    + " (total users: " + displayUsers.get(displayId).size() + ")");
++        synchronized (lock) {
++            super.acquireRef(displayId, sessionId);
++            Ln.d("VirtualDisplayRegistry: acquire display id=" + displayId + " for session " + sessionId
++                    + " (total users: " + userSessionCount(displayId) + ")");
 +        }
 +    }
 +
@@ -245,34 +239,20 @@ index 00000000..54e85c43
 +     */
 +    public boolean release(int displayId, int sessionId) {
 +        VirtualDisplaySession session = null;
-+        synchronized (activeDisplaysLock) {
-+            Map<Integer, Integer> users = displayUsers.get(displayId);
-+            if (users != null) {
-+                Integer count = users.get(sessionId);
-+                if (count != null) {
-+                    if (count > 1) {
-+                        users.put(sessionId, count - 1);
-+                        Ln.d("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
-+                                + " refcount " + count + " → " + (count - 1) + " (remaining)");
-+                        return false;
-+                    } else {
-+                        users.remove(sessionId);
-+                        Ln.d("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
-+                                + " released its last reference");
-+                    }
-+                }
-+
-+                if (users.isEmpty()) {
-+                    // Destroy only when there are no references at all. The daemon-owned
-+                    // PERSISTENT_SESSION_ID reference acquired at CREATE keeps the display
-+                    // alive across stream teardown / session disconnect; only an explicit
-+                    // manual removal (releaseVirtualDisplay) destroys it.
-+                    displayUsers.remove(displayId);
-+                    session = activeSessions.remove(displayId);
-+                }
-+            } else {
-+                // No tracking for this display? Try cleaning up session map anyway
++        synchronized (lock) {
++            // Release one reference and detect (under the lock) whether this was the
++            // last user across ALL sessions.
++            boolean last = super.releaseRef(displayId, sessionId);
++            if (last || !hasUsers(displayId)) {
++                // No references left at all — remove the display and destroy it below.
++                // The `|| !hasUsers` clause is the defensive branch for a display that was
++                // never tracked (super.release returned false because it had no users): we
++                // still clean up an orphan entry if present.
 +                session = activeSessions.remove(displayId);
++            } else {
++                // Other sessions (or this session's remaining refs) still hold the display.
++                Ln.d("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
++                        + " released a reference (users remain: " + userSessionCount(displayId) + ")");
 +            }
 +        }
 +
@@ -287,20 +267,20 @@ index 00000000..54e85c43
 +     * Release all virtual display references held by a session.
 +     */
 +    public void releaseSession(int sessionId) {
++        // Drop every reference held by the session, then destroy the displays this session was
++        // the last user of (i.e. those with no references left at all).
++        List<Integer> affected;
 +        List<Integer> toDestroy = new ArrayList<>();
-+        synchronized (activeDisplaysLock) {
-+            for (Map.Entry<Integer, Map<Integer, Integer>> entry : displayUsers.entrySet()) {
-+                int displayId = entry.getKey();
-+                Map<Integer, Integer> users = entry.getValue();
-+                if (users.remove(sessionId) != null) {
-+                    if (users.isEmpty()) {
-+                        toDestroy.add(displayId);
-+                    }
++        synchronized (lock) {
++            affected = super.releaseSessionRefs(sessionId);
++            for (int displayId : affected) {
++                if (!hasUsers(displayId)) {
++                    toDestroy.add(displayId);
 +                }
 +            }
-+            // If display was created but not 'acquired' via tracking (e.g. legacy/error path),
-+            // this loop might miss it, but standard flow always acquires.
 +        }
++        // If a display was created but never 'acquired' via tracking (e.g. legacy/error path),
++        // the loop above misses it, but the standard flow always acquires.
 +
 +        for (int displayId : toDestroy) {
 +            Ln.i("VirtualDisplayRegistry: destroying display " + displayId + " because session " + sessionId + " was the last user");
@@ -315,7 +295,7 @@ index 00000000..54e85c43
 +        // still operating on them. The previous version released the lock
 +        // right after get(), leaving a window for IllegalStateException /
 +        // double-close / leaked newReader.
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            VirtualDisplaySession session = activeSessions.get(displayId);
 +            if (session == null) {
 +                Ln.w("VirtualDisplayRegistry: display id=" + displayId + " not found for resize");
@@ -443,7 +423,7 @@ index 00000000..54e85c43
 +
 +        // Snapshot active sessions to avoid holding the lock during getDisplayInfo() calls
 +        Map<Integer, VirtualDisplaySession> sessionsSnapshot;
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            sessionsSnapshot = new HashMap<>(activeSessions);
 +        }
 +
@@ -485,7 +465,7 @@ index 00000000..54e85c43
 +
 +    public void releaseAll() {
 +        int[] ids;
-+        synchronized (activeDisplaysLock) {
++        synchronized (lock) {
 +            ids = new int[activeSessions.size()];
 +            int i = 0;
 +            for (int id : activeSessions.keySet()) {

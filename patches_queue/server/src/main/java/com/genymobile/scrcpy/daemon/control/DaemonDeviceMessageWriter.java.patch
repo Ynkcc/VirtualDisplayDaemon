@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java
 new file mode 100644
-index 00000000..c0ed1c06
+index 00000000..ae6271e6
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,71 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.DeviceMessage;
@@ -12,7 +12,6 @@ index 00000000..c0ed1c06
 +
 +import java.io.DataOutputStream;
 +import java.io.IOException;
-+import java.nio.charset.StandardCharsets;
 +import java.util.List;
 +
 +public final class DaemonDeviceMessageWriter {
@@ -25,18 +24,15 @@ index 00000000..c0ed1c06
 +        // This writer is only reached for daemon response types (invoked from
 +        // DeviceMessageWriter's default branch), so every message carries a
 +        // DaemonDeviceMessage payload.
-+        DaemonDeviceMessage dto = DaemonDeviceMessages.payload(msg);
++        DaemonDeviceMessage dto = DaemonMessages.payload(msg);
 +        switch (type) {
-+            case DaemonDeviceMessages.TYPE_RESPONSE_GENERIC:
++            case DaemonMessages.TYPE_RESPONSE_GENERIC:
 +                dos.writeLong(dto.getSequence());
 +                dos.writeInt(dto.getStatusCode());
 +                dos.writeInt(dto.getDisplayId());
-+                String responseText = dto.getText();
-+                byte[] responseBytes = responseText != null ? responseText.getBytes(StandardCharsets.UTF_8) : new byte[0];
-+                dos.writeInt(responseBytes.length);
-+                dos.write(responseBytes);
++                DaemonWire.writeString(dos, dto.getText());
 +                return true;
-+            case DaemonDeviceMessages.TYPE_RESPONSE_ACTIVE_DISPLAYS:
++            case DaemonMessages.TYPE_RESPONSE_ACTIVE_DISPLAYS:
 +                dos.writeLong(dto.getSequence());
 +                int[] ids = dto.getDisplayIds();
 +                dos.writeInt(ids.length);
@@ -44,7 +40,7 @@ index 00000000..c0ed1c06
 +                    dos.writeInt(id);
 +                }
 +                return true;
-+            case DaemonDeviceMessages.TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS:
++            case DaemonMessages.TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS:
 +                dos.writeLong(dto.getSequence());
 +                DisplayInfo[] infos = dto.getDisplayInfos();
 +                dos.writeInt(infos.length);
@@ -57,13 +53,10 @@ index 00000000..c0ed1c06
 +                    dos.writeInt(info.getMirrorDisplayId());
 +                    dos.writeByte(info.isOwned() ? 1 : 0);
 +                    dos.writeInt(info.getOwnerUid());
-+                    String ownerPkg = info.getOwnerPackageName();
-+                    byte[] ownerBytes = ownerPkg != null ? ownerPkg.getBytes(StandardCharsets.UTF_8) : new byte[0];
-+                    dos.writeInt(ownerBytes.length);
-+                    dos.write(ownerBytes);
++                    DaemonWire.writeString(dos, info.getOwnerPackageName());
 +                }
 +                return true;
-+            case DaemonDeviceMessages.TYPE_RESPONSE_APPS_LIST:
++            case DaemonMessages.TYPE_RESPONSE_APPS_LIST:
 +                dos.writeLong(dto.getSequence());
 +                List<DeviceApp> apps = dto.getApps();
 +                if (apps == null) {
@@ -72,12 +65,8 @@ index 00000000..c0ed1c06
 +                }
 +                dos.writeInt(apps.size());
 +                for (DeviceApp app : apps) {
-+                    byte[] pkgBytes = app.getPackageName().getBytes(StandardCharsets.UTF_8);
-+                    dos.writeInt(pkgBytes.length);
-+                    dos.write(pkgBytes);
-+                    byte[] nameBytes = app.getName() != null ? app.getName().getBytes(StandardCharsets.UTF_8) : new byte[0];
-+                    dos.writeInt(nameBytes.length);
-+                    dos.write(nameBytes);
++                    DaemonWire.writeString(dos, app.getPackageName());
++                    DaemonWire.writeString(dos, app.getName());
 +                    dos.writeByte(app.isSystem() ? 1 : 0);
 +                }
 +                return true;

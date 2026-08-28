@@ -3,13 +3,13 @@
 本目录保存 VirtualDisplay daemon 对 scrcpy 子模块 `server/` 的补丁集合。
 补丁路径前缀（`server/...`、`gradlew`）相对目标仓库根 **`daemon/scrcpy`**。
 
-共 **57 个补丁**：37 个新增文件 + 20 个修改上游文件。
+共 **59 个补丁**：39 个新增文件 + 20 个修改上游文件。
 
 > 应用工具：`./apply.sh`（支持 `list` / `check` / `apply` / `reverse`），见文末。
 
 ---
 
-## 1. 新增文件（37 个）
+## 1. 新增文件（39 个）
 
 按包分组。这些是 daemon 模式新增的独立实现，**无相互依赖**，可任意序应用，
 但需在引用它们的「修改上游」补丁之前应用（保证编译正确）。
@@ -25,7 +25,7 @@
 | `video/ExternalDisplayProvider.java.patch` | `server/.../video/ExternalDisplayProvider.java` | `ScreenCapture`（修改）、`DisplaySurfaceBroker` |
 | `video/FrameSink.java.patch` | `server/.../video/FrameSink.java` | `Streamer`/`SurfaceEncoder`（修改）、`FrameBroadcaster` |
 
-### 1.3 daemon（34）
+### 1.3 daemon（36）
 `daemon/` 包为 daemon 模式的核心，内部有包级依赖，但均为新增、互相可解析：
 
 | 补丁 | 目标文件 |
@@ -37,11 +37,12 @@
 | `daemon/control/DaemonCommandHandler.java.patch` | `daemon/control/DaemonCommandHandler.java` |
 | `daemon/control/DaemonControlMessage.java.patch` | `daemon/control/DaemonControlMessage.java` |
 | `daemon/control/DaemonControlMessageReader.java.patch` | `daemon/control/DaemonControlMessageReader.java` |
-| `daemon/control/DaemonControlMessages.java.patch` | `daemon/control/DaemonControlMessages.java` |
 | `daemon/control/DaemonDeviceMessage.java.patch` | `daemon/control/DaemonDeviceMessage.java` |
-| `daemon/control/DaemonDeviceMessages.java.patch` | `daemon/control/DaemonDeviceMessages.java` |
 | `daemon/control/DaemonDeviceMessageWriter.java.patch` | `daemon/control/DaemonDeviceMessageWriter.java` |
+| `daemon/control/DaemonMessages.java.patch` | `daemon/control/DaemonMessages.java` |
+| `daemon/control/DaemonWire.java.patch` | `daemon/control/DaemonWire.java` |
 | `daemon/control/ExecutionPolicy.java.patch` | `daemon/control/ExecutionPolicy.java` |
+| `daemon/control/ExtensionCarrier.java.patch` | `daemon/control/ExtensionCarrier.java` |
 | `daemon/ControlLoopRunner.java.patch` | `daemon/ControlLoopRunner.java` |
 | `daemon/DaemonArgs.java.patch` | `daemon/DaemonArgs.java` |
 | `daemon/DaemonExitCoordinator.java.patch` | `daemon/DaemonExitCoordinator.java` |
@@ -51,6 +52,7 @@
 | `daemon/display/ActivityLauncher.java.patch` | `daemon/display/ActivityLauncher.java` |
 | `daemon/display/AppLister.java.patch` | `daemon/display/AppLister.java` |
 | `daemon/display/DisplaySurfaceBroker.java.patch` | `daemon/display/DisplaySurfaceBroker.java` |
+| `daemon/display/RefCountedDisplayRegistry.java.patch` | `daemon/display/RefCountedDisplayRegistry.java` |
 | `daemon/display/RotationController.java.patch` | `daemon/display/RotationController.java` |
 | `daemon/display/VirtualDisplayRegistry.java.patch` | `daemon/display/VirtualDisplayRegistry.java` |
 | `daemon/display/VirtualDisplaySession.java.patch` | `daemon/display/VirtualDisplaySession.java` |
@@ -77,10 +79,10 @@
 | `server/build.gradle.patch` | `server/build.gradle` | 无 |
 | `server/.gitignore.patch` | `server/.gitignore` | 无 |
 | `control/ControlChannel.java.patch` | `control/ControlChannel.java` | 构造函数改为 `InputStream`/`OutputStream` |
-| `control/ControlMessage.java.patch` | `control/ControlMessage.java` | 新增 `extensionPayload` 字段 |
+| `control/ControlMessage.java.patch` | `control/ControlMessage.java` | 新增 `extensionPayload` 字段 + `implements ExtensionCarrier` |
 | `control/ControlMessageReader.java.patch` | `control/ControlMessageReader.java` | → `DaemonControlMessageReader`（新增） |
 | `control/Controller.java.patch` | `control/Controller.java` | → `ControlMessageExtension`（新增）、`mirrorDisplayId` |
-| `control/DeviceMessage.java.patch` | `control/DeviceMessage.java` | 新增 `extensionPayload` + `createEmpty()` |
+| `control/DeviceMessage.java.patch` | `control/DeviceMessage.java` | 新增 `extensionPayload` + `createEmpty()` + `implements ExtensionCarrier` |
 | `control/DeviceMessageSender.java.patch` | `control/DeviceMessageSender.java` | 队列 16→64 |
 | `control/DeviceMessageWriter.java.patch` | `control/DeviceMessageWriter.java` | → `DaemonDeviceMessageWriter`（新增） |
 | `device/DesktopConnection.java.patch` | `device/DesktopConnection.java` | 适配 `ControlChannel` 新构造 |
@@ -100,8 +102,9 @@
 
 1. **先新增、后修改**。所有新增文件（§1）在前，修改文件（§2）在后。
    `apply.sh` 已强制该顺序，无需手工排序。
-2. **接口先行**：`ControlMessageExtension`、`ExternalDisplayProvider`、`FrameSink`
-   三个接口被修改类直接实现/引用，务必在修改类之前落盘。
+2. **接口先行**：`ControlMessageExtension`、`ExternalDisplayProvider`、`FrameSink`、
+   `ExtensionCarrier`、`DaemonMessages`、`DaemonWire`、`RefCountedDisplayRegistry`
+   被修改类直接实现/引用，务必在引用类之前落盘。
 3. **同一文件仅一个补丁**，故补丁间无「互相覆盖」冲突。
 4. 依赖关系仅影响**编译正确性**，`git apply` 本身按文本上下文匹配，不校验编译。
 

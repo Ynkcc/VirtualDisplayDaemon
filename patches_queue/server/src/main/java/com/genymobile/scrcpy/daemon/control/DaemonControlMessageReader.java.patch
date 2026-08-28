@@ -1,16 +1,17 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReader.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReader.java
 new file mode 100644
-index 00000000..13d2612b
+index 00000000..d74dd0b5
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReader.java
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,120 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
 +
 +import java.io.DataInputStream;
 +import java.io.IOException;
-+import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.List;
 +
 +public final class DaemonControlMessageReader {
 +
@@ -19,46 +20,39 @@ index 00000000..13d2612b
 +
 +    public static ControlMessage read(int type, DataInputStream dis) throws IOException {
 +        switch (type) {
-+            case DaemonControlMessages.TYPE_CREATE_VIRTUAL_DISPLAY:
++            case DaemonMessages.TYPE_CREATE_VIRTUAL_DISPLAY:
 +                return parseCreateVirtualDisplay(dis);
-+            case DaemonControlMessages.TYPE_RELEASE_VIRTUAL_DISPLAY:
++            case DaemonMessages.TYPE_RELEASE_VIRTUAL_DISPLAY:
 +                return parseReleaseVirtualDisplay(dis);
-+            case DaemonControlMessages.TYPE_RESIZE_VIRTUAL_DISPLAY:
++            case DaemonMessages.TYPE_RESIZE_VIRTUAL_DISPLAY:
 +                return parseResizeVirtualDisplay(dis);
-+            case DaemonControlMessages.TYPE_START_ACTIVITY:
++            case DaemonMessages.TYPE_START_ACTIVITY:
 +                return parseStartActivityWithDisplay(dis);
-+            case DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_IDS:
-+                return DaemonControlMessages.createGetActiveDisplayIds(dis.readLong());
-+            case DaemonControlMessages.TYPE_EXIT_DAEMON:
-+                return DaemonControlMessages.createExitDaemon(dis.readLong());
-+            case DaemonControlMessages.TYPE_GET_ROTATION:
-+                return DaemonControlMessages.createGetRotation(dis.readLong(), dis.readInt());
-+            case DaemonControlMessages.TYPE_FREEZE_ROTATION:
-+                return DaemonControlMessages.createFreezeRotation(dis.readLong(), dis.readInt(), dis.readInt());
-+            case DaemonControlMessages.TYPE_THAW_ROTATION:
-+                return DaemonControlMessages.createThawRotation(dis.readLong(), dis.readInt());
-+            case DaemonControlMessages.TYPE_IS_ROTATION_FROZEN:
-+                return DaemonControlMessages.createIsRotationFrozen(dis.readLong(), dis.readInt());
-+            case DaemonControlMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS:
-+                return DaemonControlMessages.createGetActiveDisplayInfos(dis.readLong());
-+            case DaemonControlMessages.TYPE_CONFIGURE_SESSION:
++            case DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_IDS:
++                return DaemonMessages.createGetActiveDisplayIds(dis.readLong());
++            case DaemonMessages.TYPE_EXIT_DAEMON:
++                return DaemonMessages.createExitDaemon(dis.readLong());
++            case DaemonMessages.TYPE_GET_ROTATION:
++                return DaemonMessages.createGetRotation(dis.readLong(), dis.readInt());
++            case DaemonMessages.TYPE_FREEZE_ROTATION:
++                return DaemonMessages.createFreezeRotation(dis.readLong(), dis.readInt(), dis.readInt());
++            case DaemonMessages.TYPE_THAW_ROTATION:
++                return DaemonMessages.createThawRotation(dis.readLong(), dis.readInt());
++            case DaemonMessages.TYPE_IS_ROTATION_FROZEN:
++                return DaemonMessages.createIsRotationFrozen(dis.readLong(), dis.readInt());
++            case DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS:
++                return DaemonMessages.createGetActiveDisplayInfos(dis.readLong());
++            case DaemonMessages.TYPE_CONFIGURE_SESSION:
 +                return parseConfigureSession(dis);
-+            case DaemonControlMessages.TYPE_LAUNCH_HOME:
-+                return DaemonControlMessages.createLaunchHome(dis.readLong(), dis.readInt());
-+            case DaemonControlMessages.TYPE_LIST_APPS:
-+                return DaemonControlMessages.createListApps(dis.readLong());
-+            case DaemonControlMessages.TYPE_PING:
-+                return DaemonControlMessages.createPing(dis.readLong());
++            case DaemonMessages.TYPE_LAUNCH_HOME:
++                return DaemonMessages.createLaunchHome(dis.readLong(), dis.readInt());
++            case DaemonMessages.TYPE_LIST_APPS:
++                return DaemonMessages.createListApps(dis.readLong());
++            case DaemonMessages.TYPE_PING:
++                return DaemonMessages.createPing(dis.readLong());
 +            default:
 +                return null;
 +        }
-+    }
-+
-+    private static String parseString(DataInputStream dis) throws IOException {
-+        int len = dis.readInt();
-+        byte[] data = new byte[len];
-+        dis.readFully(data);
-+        return new String(data, StandardCharsets.UTF_8);
 +    }
 +
 +    private static byte[] parseByteArray(DataInputStream dis, int sizeBytes) throws IOException {
@@ -73,7 +67,7 @@ index 00000000..13d2612b
 +
 +    private static ControlMessage parseCreateVirtualDisplay(DataInputStream dis) throws IOException {
 +        long sequence = dis.readLong();
-+        String name = parseString(dis);
++        String name = DaemonWire.readString(dis);
 +        int width = dis.readInt();
 +        int height = dis.readInt();
 +        int dpi = dis.readInt();
@@ -81,7 +75,7 @@ index 00000000..13d2612b
 +        // Explicit framing: the client always sends displayId (default -1).
 +        // Fixed layout — no EOF probing for "optional" tails.
 +        int displayId = dis.readInt();
-+        return DaemonControlMessages.createCreateVirtualDisplay(sequence, name, width, height, dpi, flags, displayId);
++        return DaemonMessages.createCreateVirtualDisplay(sequence, name, width, height, dpi, flags, displayId);
 +    }
 +
 +    private static ControlMessage parseReleaseVirtualDisplay(DataInputStream dis) throws IOException {
@@ -90,7 +84,7 @@ index 00000000..13d2612b
 +        // Explicit framing: client always sends the 1-byte flag (0=keep, 1=move
 +        // tasks to default display). No EOF probing.
 +        boolean moveTasksToDefaultDisplay = dis.readUnsignedByte() != 0;
-+        return DaemonControlMessages.createReleaseVirtualDisplay(sequence, displayId, moveTasksToDefaultDisplay);
++        return DaemonMessages.createReleaseVirtualDisplay(sequence, displayId, moveTasksToDefaultDisplay);
 +    }
 +
 +    private static ControlMessage parseResizeVirtualDisplay(DataInputStream dis) throws IOException {
@@ -99,19 +93,19 @@ index 00000000..13d2612b
 +        int width = dis.readInt();
 +        int height = dis.readInt();
 +        int dpi = dis.readInt();
-+        return DaemonControlMessages.createResizeVirtualDisplay(sequence, displayId, width, height, dpi);
++        return DaemonMessages.createResizeVirtualDisplay(sequence, displayId, width, height, dpi);
 +    }
 +
 +    private static ControlMessage parseStartActivityWithDisplay(DataInputStream dis) throws IOException {
 +        long sequence = dis.readLong();
-+        String packageName = parseString(dis);
++        String packageName = DaemonWire.readString(dis);
 +        int displayId = dis.readInt();
-+        return DaemonControlMessages.createStartActivity(sequence, packageName, displayId);
++        return DaemonMessages.createStartActivity(sequence, packageName, displayId);
 +    }
 +
 +    private static ControlMessage parseConfigureSession(DataInputStream dis) throws IOException {
 +        long sequence = dis.readLong();
-+        String optionsKv = parseString(dis);
++        String optionsKv = DaemonWire.readString(dis);
 +        int rolesMask = dis.readInt();
 +        // Explicit framing: the client always sends int32 entriesCount, then
 +        // entriesCount x (uint8 role, int32 displayId). 0 entries is valid
@@ -119,22 +113,14 @@ index 00000000..13d2612b
 +        int entriesCount = dis.readInt();
 +        if (entriesCount <= 0 || entriesCount > 64) {
 +            // 0 entries valid (explicit mask-only); >64 is clearly garbage.
-+            return DaemonControlMessages.createConfigureSession(sequence, optionsKv, rolesMask);
++            return DaemonMessages.createConfigureSession(sequence, optionsKv, rolesMask);
 +        }
-+        java.util.List<DaemonControlMessage.RoleEntry> entries = new java.util.ArrayList<>(entriesCount);
++        List<DaemonControlMessage.RoleEntry> entries = new ArrayList<>(entriesCount);
 +        for (int i = 0; i < entriesCount; i++) {
 +            int role = dis.readUnsignedByte();
-+            int displayId = readInt32(dis);
++            int displayId = DaemonWire.readInt32(dis);
 +            entries.add(new DaemonControlMessage.RoleEntry(role, displayId));
 +        }
-+        return DaemonControlMessages.createConfigureSession(sequence, optionsKv, rolesMask, entries);
-+    }
-+
-+    private static int readInt32(DataInputStream dis) throws IOException {
-+        int b1 = dis.readUnsignedByte();
-+        int b2 = dis.readUnsignedByte();
-+        int b3 = dis.readUnsignedByte();
-+        int b4 = dis.readUnsignedByte();
-+        return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
++        return DaemonMessages.createConfigureSession(sequence, optionsKv, rolesMask, entries);
 +    }
 +}

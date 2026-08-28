@@ -1,0 +1,141 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/RefCountedDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/RefCountedDisplayRegistry.java
+new file mode 100644
+index 00000000..7a941971
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/RefCountedDisplayRegistry.java
+@@ -0,0 +1,135 @@
++package com.genymobile.scrcpy.daemon.display;
++
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.Iterator;
++import java.util.List;
++import java.util.Map;
++
++/**
++ * Shared "reference-counted display registry" bookkeeping, used by both
++ * {@link VirtualDisplayRegistry} (owns virtual-display lifetime) and
++ * {@link com.genymobile.scrcpy.daemon.video.FrameBroadcasterRegistry} (owns shared
++ * encoder/broadcaster lifetime).
++ *
++ * <p>Both registries track, per {@code displayId}, how many references each {@code sessionId}
++ * holds, and follow the same teardown policy: a resource is destroyed only when its reference
++ * count drops to zero across ALL sessions. This base class centralises the {@code lock} + the
++ * {@code displayId → sessionId → count} structure and the acquire/release/session/clear
++ * bookkeeping.
++ *
++ * <h3>Locking contract</h3>
++ * <p>The methods here do <b>not</b> take the lock themselves: the subclass must invoke them
++ * while holding {@link #lock}, so that a "release → is this the last user → remove my resource"
++ * sequence stays atomic with respect to a concurrent {@code acquire}. {@link #lock} is exposed
++ * as {@code protected} precisely so the subclass guards both its own resource map and the
++ * shared ref-count bookkeeping with the same monitor.
++ */
++public abstract class RefCountedDisplayRegistry {
++
++    /**
++     * Shared lock guarding both the ref-count bookkeeping and the subclass resource maps.
++     * Lock ordering is strictly registry-internal (never acquired while holding a subscriber
++     * lock), so no deadlock is possible.
++     */
++    protected final Object lock = new Object();
++
++    /** displayId -> sessionId -> refcount. Must only be accessed under {@link #lock}. */
++    private final Map<Integer, Map<Integer, Integer>> users = new HashMap<>();
++
++    protected RefCountedDisplayRegistry() {
++    }
++
++    /**
++     * Register one reference of {@code sessionId} to {@code displayId}. Idempotent per call —
++     * each call increments the per-session count, so CREATE + STREAM from the same session
++     * yields a count of 2. Call under {@link #lock}.
++     */
++    protected final void acquireRef(int displayId, int sessionId) {
++        users.computeIfAbsent(displayId, k -> new HashMap<>()).merge(sessionId, 1, Integer::sum);
++    }
++
++    /**
++     * Release one reference of {@code sessionId} to {@code displayId}. Call under {@link #lock}.
++     *
++     * @return {@code true} iff this was the last reference across all sessions (the resource
++     *         should be torn down by the caller, outside the lock); {@code false} otherwise.
++     */
++    protected final boolean releaseRef(int displayId, int sessionId) {
++        Map<Integer, Integer> perSession = users.get(displayId);
++        if (perSession == null) {
++            return false;
++        }
++        Integer count = perSession.get(sessionId);
++        if (count == null) {
++            return false;
++        }
++        if (count > 1) {
++            perSession.put(sessionId, count - 1);
++            return false;
++        }
++        perSession.remove(sessionId);
++        if (perSession.isEmpty()) {
++            users.remove(displayId);
++            return true;
++        }
++        return false;
++    }
++
++    /**
++     * Drop every reference held by {@code sessionId}. Call under {@link #lock}. Returns the
++     * displayIds this session was involved with; the caller must check {@link #hasUsers(int)}
++     * to decide which of them are now unreferenced and should be torn down (outside the lock).
++     * Returning the full "affected" set (rather than only the freed ones) lets the subclass
++     * also run per-session cleanup on still-referenced resources, e.g. a broadcaster removing a
++     * dead subscriber without shutting the broadcaster down.
++     */
++    protected final List<Integer> releaseSessionRefs(int sessionId) {
++        List<Integer> affected = new ArrayList<>();
++        Iterator<Map.Entry<Integer, Map<Integer, Integer>>> it = users.entrySet().iterator();
++        while (it.hasNext()) {
++            Map.Entry<Integer, Map<Integer, Integer>> entry = it.next();
++            Map<Integer, Integer> perSession = entry.getValue();
++            if (perSession.containsKey(sessionId)) {
++                affected.add(entry.getKey());
++                perSession.remove(sessionId);
++                if (perSession.isEmpty()) {
++                    it.remove();
++                }
++            }
++        }
++        return affected;
++    }
++
++    /**
++     * Whether {@code displayId} currently has any references. Call under {@link #lock}.
++     */
++    protected final boolean hasUsers(int displayId) {
++        Map<Integer, Integer> perSession = users.get(displayId);
++        return perSession != null && !perSession.isEmpty();
++    }
++
++    /**
++     * Number of distinct sessions currently holding a reference to {@code displayId}.
++     * Call under {@link #lock}.
++     */
++    protected final int userSessionCount(int displayId) {
++        Map<Integer, Integer> perSession = users.get(displayId);
++        return perSession != null ? perSession.size() : 0;
++    }
++
++    /**
++     * Clear all ref-count bookkeeping. Call under {@link #lock} (used by {@code releaseAll}).
++     */
++    protected final void clearUsers() {
++        users.clear();
++    }
++
++    /**
++     * Drop every reference for a single {@code displayId} (used by the force-destroy path in
++     * {@code releaseVirtualDisplay}). Call under {@link #lock}.
++     */
++    protected final void clearDisplay(int displayId) {
++        users.remove(displayId);
++    }
++}
