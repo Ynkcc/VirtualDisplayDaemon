@@ -1,78 +1,60 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Test that the daemon-mode patches compile against the scrcpy submodule.
+#
+# Workflow (meant for CI / local verification only — it DESTROYS the local
+# scrcpy checkout state):
+#   1. Reset the local scrcpy submodule to a pristine 'master'.
+#   2. Apply patches from patches_queue/ via apply_patches.sh (single entry point).
+#   3. Build the server module inside the submodule (./gradlew :server:assembleDebug).
+#
+# Usage:
+#   tools/test_compilation.sh
 
-# This script tests the compilation of the daemon patches by:
-# 1. Resetting the local scrcpy checkout.
-# 2. Applying the patches from the current 'patches_queue' directory to the local submodule.
-# 3. Running the Gradle build for the server inside the submodule.
+set -euo pipefail
 
-# Exit on error
-set -e
+# Load canonical paths + submodule checks.
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "${_SCRIPT_DIR}/lib/common.sh"
 
-# Get the absolute path of the current repository
-REPO_ROOT=$(git rev-parse --show-toplevel)
-PATCHES_QUEUE_DIR="${REPO_ROOT}/patches_queue"
+ensure_scrcpy_submodule
+require_patches_queue
 
-echo "Repository Root: ${REPO_ROOT}"
-echo "Patches Queue: ${PATCHES_QUEUE_DIR}"
-
-if [ ! -d "${PATCHES_QUEUE_DIR}" ]; then
-    echo "Error: Patches directory not found: ${PATCHES_QUEUE_DIR}"
-    exit 1
-fi
-
-SCRCPY_DIR="${REPO_ROOT}/scrcpy"
-
-if [ ! -d "${SCRCPY_DIR}" ]; then
-    echo "Error: scrcpy directory not found: ${SCRCPY_DIR}"
-    exit 1
-fi
-
-# Make sure the local submodule is initialized before patching it in place.
-git -C "${REPO_ROOT}" submodule update --init --recursive
-
+# ---------------------------------------------------------------------------
+# 1. Restore a pristine master checkout inside the submodule
+# ---------------------------------------------------------------------------
 cd "${SCRCPY_DIR}"
-
-# Restore the local scrcpy checkout before reapplying patches.
-echo "Resetting local scrcpy checkout..."
+echo "[test] Resetting local scrcpy checkout to pristine master..."
 git reset --hard
 git clean -fd
 
-# Ensure local.properties exists for Gradle
-echo "sdk.dir=$ANDROID_HOME" > local.properties
+# Ensure local.properties exists for the Gradle build.
+echo "sdk.dir=${ANDROID_HOME:-}" > local.properties
 
-# Apply all patches from the source patches_queue
-echo "Applying patches..."
+# ---------------------------------------------------------------------------
+# 2. Apply the patches (delegated to the single entry point)
+# ---------------------------------------------------------------------------
+echo "[test] Applying patches..."
+"${TOOLS_DIR}/apply_patches.sh" --force
 
-# 1. Apply gradlew.patch if it exists (at the root of scrcpy)
-if [ -f "${PATCHES_QUEUE_DIR}/gradlew.patch" ]; then
-    echo "Applying gradlew.patch..."
-    git apply --recount --verbose "${PATCHES_QUEUE_DIR}/gradlew.patch"
-fi
-
-# 2. Apply server patches
-# The server patches are expected to be relative to the scrcpy root (start with server/)
-# We use 'git apply --recount' which is much more robust than the 'patch' utility.
-find "${PATCHES_QUEUE_DIR}/server" -name "*.patch" | sort | while read patch_path; do
-    echo "Applying $(basename "${patch_path}")..."
-    git apply --recount --verbose "${patch_path}"
-done
-
-echo "Starting Gradle build for scrcpy server..."
-# Ensure gradlew is executable (it might have been patched)
+# ---------------------------------------------------------------------------
+# 3. Build the server component
+# ---------------------------------------------------------------------------
+echo "[test] Building scrcpy server..."
+# Ensure gradlew is executable (it may have been patched).
 chmod +x ./gradlew
-
-# Build the server component
 ./gradlew :server:assembleDebug
 
 BUILD_RESULT=$?
 
 if [ ${BUILD_RESULT} -eq 0 ]; then
     echo "------------------------------------------------"
-    echo "SUCCESS: The patches compile correctly on scrcpy submodule."
+    echo "[test] SUCCESS: the patches compile correctly on the scrcpy submodule."
     echo "------------------------------------------------"
 else
     echo "------------------------------------------------"
-    echo "FAILURE: Compilation failed."
+    echo "[test] FAILURE: compilation failed."
     echo "------------------------------------------------"
 fi
 
