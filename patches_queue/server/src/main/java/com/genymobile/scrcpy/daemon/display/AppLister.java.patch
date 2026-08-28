@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
 new file mode 100644
-index 00000000..8481745f
+index 00000000..8a7b3c5f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,138 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.FakeContext;
@@ -11,9 +11,14 @@ index 00000000..8481745f
 +import com.genymobile.scrcpy.util.Ln;
 +
 +import android.content.Intent;
++import android.content.pm.ActivityInfo;
 +import android.content.pm.ApplicationInfo;
 +import android.content.pm.PackageManager;
 +import android.content.pm.ResolveInfo;
++import android.content.res.AssetManager;
++import android.content.res.Configuration;
++import android.content.res.Resources;
++import android.util.DisplayMetrics;
 +
 +import java.util.ArrayList;
 +import java.util.Collections;
@@ -62,28 +67,130 @@ index 00000000..8481745f
 +     *
 +     * <p>Prefer the application label; fall back to the launcher activity's
 +     * label when the former is missing. This avoids showing raw package names
-+     * for apps that only declare a label on their launcher activity.
++     * or class names for apps that only declare a label on their launcher
++     * activity.
 +     */
 +    private static String resolveAppName(PackageManager pm, ApplicationInfo info, Intent launchIntent) {
-+        CharSequence label = info.loadLabel(pm);
-+        String appLabel = label != null ? label.toString().trim() : "";
-+        // loadLabel() falls back to the package name when the application
-+        // declares no label; treat that as "missing" too.
-+        boolean hasRealLabel = !appLabel.isEmpty() && !appLabel.equals(info.packageName);
-+        if (hasRealLabel) {
++        String appLabel = loadApplicationLabel(pm, info);
++        if (!appLabel.isEmpty()) {
 +            return appLabel;
 +        }
 +        try {
 +            ResolveInfo ri = pm.resolveActivity(launchIntent, PackageManager.MATCH_DEFAULT_ONLY);
 +            if (ri != null && ri.activityInfo != null) {
-+                CharSequence activityLabel = ri.activityInfo.loadLabel(pm);
-+                if (activityLabel != null && !activityLabel.toString().trim().isEmpty()) {
-+                    return activityLabel.toString().trim();
++                String s = loadActivityLabel(pm, ri.activityInfo, info.packageName);
++                if (!s.isEmpty()) {
++                    return s;
 +                }
 +            }
 +        } catch (Exception e) {
 +            Ln.w("AppLister: failed to resolve launcher label for " + info.packageName, e);
 +        }
 +        return info.packageName;
++    }
++
++    /**
++     * Resolve the application label, trying in order: an inline string label,
++     * {@link ApplicationInfo#loadLabel}, then the string resource referenced by
++     * {@code labelRes}.
++     *
++     * <p>loadLabel()/getText() can fail for large apps whose code cannot be
++     * loaded (CONTEXT_INCLUDE_CODE) and then falls back to the application
++     * class name ({@link ApplicationInfo#name}) or the package name; those
++     * fallbacks are treated as "no label". The string resource is loaded
++     * straight from the APK's resource table via {@link AssetManager}, which
++     * does not depend on the (fabricated) activity-thread context the daemon
++     * runs under, so it works even when the app code cannot be loaded.
++     *
++     * @return the resolved label, or an empty string when no real label exists
++     */
++    private static String loadApplicationLabel(PackageManager pm, ApplicationInfo info) {
++        if (info.nonLocalizedLabel != null) {
++            String s = info.nonLocalizedLabel.toString().trim();
++            if (!s.isEmpty()) {
++                return s;
++            }
++        }
++        CharSequence label = info.loadLabel(pm);
++        String s = label != null ? label.toString().trim() : "";
++        if (!s.isEmpty() && !s.equals(info.packageName) && !s.equals(info.name)) {
++            return s;
++        }
++        if (info.labelRes != 0) {
++            // Prefer the framework path (valid in a real instrumentation context).
++            try {
++                String rs = pm.getResourcesForApplication(info).getString(info.labelRes);
++                if (rs != null && !rs.trim().isEmpty()) {
++                    return rs.trim();
++                }
++            } catch (Exception e) {
++                Ln.w("AppLister: failed to load label resource for " + info.packageName, e);
++            }
++            // Fall back to reading the APK resource table directly. This is the
++            // reliable path under the daemon's fabricated context.
++            String fromApk = loadLabelFromApk(info);
++            if (!fromApk.isEmpty()) {
++                return fromApk;
++            }
++        }
++        return "";
++    }
++
++    /**
++     * Load a string resource straight from the APK file via a standalone
++     * {@link AssetManager}. This bypasses PackageManager/Context entirely, so
++     * it is immune to the daemon's fabricated activity-thread environment and
++     * does not require loading the app's code.
++     *
++     * @return the resolved label, or an empty string on any failure
++     */
++    private static String loadLabelFromApk(ApplicationInfo info) {
++        AssetManager am = null;
++        try {
++            // AssetManager() and addAssetPath() are hidden API on modern
++            // Android, so build the manager reflectively.
++            Class<?> assetManagerClass = AssetManager.class;
++            java.lang.reflect.Constructor<?> ctor = assetManagerClass.getDeclaredConstructor();
++            ctor.setAccessible(true);
++            am = (AssetManager) ctor.newInstance();
++            java.lang.reflect.Method addAssetPath = assetManagerClass.getMethod("addAssetPath", String.class);
++            addAssetPath.invoke(am, info.sourceDir);
++            DisplayMetrics dm = Resources.getSystem().getDisplayMetrics();
++            Configuration config = Resources.getSystem().getConfiguration();
++            Resources res = new Resources(am, dm, config);
++            String s = res.getString(info.labelRes);
++            if (s != null) {
++                s = s.trim();
++            }
++            return s != null && !s.isEmpty() ? s : "";
++        } catch (Exception e) {
++            Ln.w("AppLister: failed to load label from APK for " + info.packageName, e);
++            return "";
++        } finally {
++            if (am != null) {
++                try {
++                    am.close();
++                } catch (Exception ignored) {
++                    // best-effort close
++                }
++            }
++        }
++    }
++
++    /**
++     * Resolve an activity's label, rejecting the synthetic fallbacks that
++     * {@link ActivityInfo#loadLabel} produces when no {@code android:label} is
++     * declared: the fully-qualified activity class name ({@link ActivityInfo#name})
++     * or the package name.
++     *
++     * @return the resolved label, or an empty string when it is only a fallback
++     */
++    private static String loadActivityLabel(PackageManager pm, ActivityInfo ai, String packageName) {
++        CharSequence label = ai.loadLabel(pm);
++        String s = label != null ? label.toString().trim() : "";
++        if (s.isEmpty() || s.equals(ai.name) || s.equals(packageName)) {
++            return "";
++        }
++        return s;
 +    }
 +}
