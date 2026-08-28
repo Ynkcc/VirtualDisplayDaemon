@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessages.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessages.java
 new file mode 100644
-index 00000000..f2f3d461
+index 00000000..e4567c79
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessages.java
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,206 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -82,10 +82,19 @@ index 00000000..f2f3d461
 +        return envelope(TYPE_CREATE_VIRTUAL_DISPLAY, dto);
 +    }
 +
-+    public static ControlMessage createReleaseVirtualDisplay(long sequence, int displayId) {
++    /**
++     * 创建"释放虚拟显示器"命令。
++     *
++     * @param sequence   消息序号
++     * @param displayId  要销毁的显示器 id
++     * @param moveTasksToDefaultDisplay 销毁前是否将显示器上的任务移回主屏（true=前台移回，false=不处理交给系统）
++     */
++    public static ControlMessage createReleaseVirtualDisplay(long sequence, int displayId, boolean moveTasksToDefaultDisplay) {
 +        DaemonControlMessage dto = new DaemonControlMessage();
 +        dto.setSequence(sequence);
 +        dto.setDisplayId(displayId);
++        // 复用 flags 字段承载行为标志（0=不处理，1=前台移回），避免扩展 protobuf schema
++        dto.setFlags(moveTasksToDefaultDisplay ? 1 : 0);
 +        return envelope(TYPE_RELEASE_VIRTUAL_DISPLAY, dto);
 +    }
 +

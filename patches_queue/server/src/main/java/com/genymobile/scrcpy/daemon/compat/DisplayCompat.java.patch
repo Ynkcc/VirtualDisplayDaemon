@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
 new file mode 100644
-index 00000000..139ff350
+index 00000000..ca3f601f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,196 @@
 +package com.genymobile.scrcpy.daemon.compat;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -70,6 +70,25 @@ index 00000000..139ff350
 +    private DisplayCompat() {
 +    }
 +
++    /**
++     * 将虚拟显示器上的任务移动到主屏（display 0）。
++     *
++     * <p>注意（Android 16 / API 36 的 API 差异，为后期多版本适配记录）：
++     * <ul>
++     *   <li>{@code IActivityTaskManager.moveTaskToBack(int)} 在 Android 16 已<b>被移除</b>，
++     *       反射 {@code getMethod("moveTaskToBack", int.class)} 会抛 {@code NoSuchMethodException}，
++     *       无法用于"销毁后后台移回"。</li>
++     *   <li>替代方案 {@code IActivityClientController.moveActivityTaskToBack(IBinder token, boolean nonRoot)}
++     *       虽然存在（可通过 {@code getActivityClientController()} 获取），但需要 <b>ActivityRecord 的
++     *       IBinder token</b>，而 {@code getRecentTasks()} 只返回 {@code taskId}，难以拿到该 token，故未采用。</li>
++     *   <li>{@code IActivityTaskManager.moveTaskToRootTask(int taskId, int rootTaskId, boolean toTop)}
++     *       带 {@code toTop} 标志，理论上可后台移回，但实测会引发设备锁屏（keyguard）等副作用，故弃用。</li>
++     *   <li>{@code moveRootTaskToDisplay(int, int)} 在 Android 16 仍可用，但移动后任务会<b>置顶到前台</b>，
++     *       即"前台移回"。这是当前唯一稳定可用的实现。</li>
++     * </ul>
++     * 因此本方法采用"前台移回"作为销毁后的默认行为；是否调用本方法由上层（{@link VirtualDisplayRegistry}）
++     * 根据用户配置决定。
++     */
 +    public static void moveTasksToDefaultDisplay(int displayId) {
 +        try {
 +            Ln.i("DisplayCompat: Checking tasks on display " + displayId + " to move back to display 0");

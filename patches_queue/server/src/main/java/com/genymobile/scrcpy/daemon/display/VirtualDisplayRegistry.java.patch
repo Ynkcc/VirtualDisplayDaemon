@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..40703101
+index 00000000..6de8b25b
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,511 @@
+@@ -0,0 +1,528 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -147,6 +147,18 @@ index 00000000..40703101
 +    }
 +
 +    public boolean releaseVirtualDisplay(int displayId) {
++        return releaseVirtualDisplay(displayId, true);
++    }
++
++    /**
++     * 释放虚拟显示器。
++     *
++     * @param displayId               要销毁的显示器 id
++     * @param moveTasksToDefaultDisplay 销毁前是否将显示器上的任务移回主屏。
++     *                                 true=前台移回（保留应用在 recents）；
++     *                                 false=不处理，完全交给系统（应用通常会被系统直接关闭/移除）。
++     */
++    public boolean releaseVirtualDisplay(int displayId, boolean moveTasksToDefaultDisplay) {
 +        VirtualDisplaySession session;
 +        synchronized (activeDisplaysLock) {
 +            session = activeSessions.remove(displayId);
@@ -154,19 +166,19 @@ index 00000000..40703101
 +        }
 +
 +        if (session != null) {
-+            return actuallyDestroy(displayId, session);
++            return actuallyDestroy(displayId, session, moveTasksToDefaultDisplay);
 +        }
 +        Ln.w("VirtualDisplayRegistry: display id=" + displayId + " not found in activeSessions, performing best-effort release of orphan display");
 +        return DisplayCompat.bestEffortReleaseOrphan(displayId);
 +    }
 +
 +    /**
-+     * Actually tear down a virtual display: thaw rotation, migrate tasks back
-+     * to the default display, close the session (VirtualDisplay + ImageReader).
++     * Actually tear down a virtual display: thaw rotation, optionally migrate
++     * tasks back to the default display, close the session (VirtualDisplay + ImageReader).
 +     * Called outside {@code activeDisplaysLock} — the heavy I/O must not hold
 +     * the registry lock.
 +     */
-+    private boolean actuallyDestroy(int displayId, VirtualDisplaySession session) {
++    private boolean actuallyDestroy(int displayId, VirtualDisplaySession session, boolean moveTasksToDefaultDisplay) {
 +        try {
 +            // Thaw (un-freeze) rotation before releasing the virtual display
 +            // so any previously frozen orientation state is released back to the system.
@@ -176,7 +188,12 @@ index 00000000..40703101
 +            } catch (Throwable t) {
 +                Ln.w("VirtualDisplayRegistry: failed to thaw rotation for displayId=" + displayId, t);
 +            }
-+            DisplayCompat.moveTasksToDefaultDisplay(displayId);
++            if (moveTasksToDefaultDisplay) {
++                DisplayCompat.moveTasksToDefaultDisplay(displayId);
++            } else {
++                Ln.i("VirtualDisplayRegistry: skipping task migration for display id=" + displayId
++                        + " (moveTasksToDefaultDisplay=false)");
++            }
 +            session.close();
 +            Ln.i("VirtualDisplayRegistry: released virtual display id=" + displayId);
 +            return true;
@@ -250,7 +267,7 @@ index 00000000..40703101
 +        }
 +
 +        if (session != null) {
-+            actuallyDestroy(displayId, session);
++            actuallyDestroy(displayId, session, true);
 +            return true;
 +        }
 +        return false;
