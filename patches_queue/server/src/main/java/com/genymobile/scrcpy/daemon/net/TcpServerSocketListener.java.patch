@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
 new file mode 100644
-index 00000000..ddb58ad3
+index 00000000..d9a9e4e0
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,143 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -79,6 +79,11 @@ index 00000000..ddb58ad3
 +                thread.setDaemon(true);
 +                thread.start();
 +                acceptThreads.add(thread);
++            } catch (java.net.BindException e) {
++                Ln.e("Port " + port + " already in use on " + addr + ". Close other scrcpy daemon instances first.");
++                if (addressesToBind.size() == 1 || addr.equals(bindAddress)) {
++                    throw e;
++                }
 +            } catch (IOException e) {
 +                Ln.e("Failed to bind to " + addr + ":" + port, e);
 +                if (addressesToBind.size() == 1 || addr.equals(bindAddress)) {
