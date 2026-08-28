@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..6e1e08ca
+index 00000000..54e85c43
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,498 @@
+@@ -0,0 +1,494 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -111,20 +111,16 @@ index 00000000..6e1e08ca
 +            }
 +            int displayId = vd.getDisplay().getDisplayId();
 +
-+            boolean powered = false;
-+            try {
-+                powered = ServiceManager.getDisplayManager().requestDisplayPower(displayId, true);
-+                Ln.i("VirtualDisplayRegistry: requestDisplayPower(" + displayId + ", true) returned: " + powered);
-+            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: requestDisplayPower not supported on this device/Android version: " + t.getMessage());
-+            }
-+
-+
++            // No requestDisplayPower() here: this daemon-managed VD is private and
++            // non-mirrored, so the system assigns it DisplayDeviceInfo.FLAG_NEVER_BLANK
++            // (VirtualDisplayAdapter) — it is never blanked by the power manager.
++            // A redundant requestDisplayPower() (only present on API 36+) is dead code
++            // and would also be a no-op security/version-wise. See DisplayManager docs.
 +            VirtualDisplaySession session = new VirtualDisplaySession(displayId, name, vd, imageReader, readerThread, mirrorDisplayId);
 +            synchronized (activeDisplaysLock) {
 +                activeSessions.put(displayId, session);
 +            }
-+            Ln.i("VirtualDisplayRegistry: created virtual display id=" + displayId + " (" + width + "x" + height + "/" + dpi + "), powered=" + powered);
++            Ln.i("VirtualDisplayRegistry: created virtual display id=" + displayId + " (" + width + "x" + height + "/" + dpi + ")");
 +            return displayId;
 +        } catch (Exception e) {
 +            Ln.e("VirtualDisplayRegistry: failed to create virtual display", e);
