@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
 new file mode 100644
-index 00000000..7d08999b
+index 00000000..8481745f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,83 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.FakeContext;
@@ -13,6 +13,7 @@ index 00000000..7d08999b
 +import android.content.Intent;
 +import android.content.pm.ApplicationInfo;
 +import android.content.pm.PackageManager;
++import android.content.pm.ResolveInfo;
 +
 +import java.util.ArrayList;
 +import java.util.Collections;
@@ -46,8 +47,7 @@ index 00000000..7d08999b
 +                if (launchIntent == null) {
 +                    continue;
 +                }
-+                CharSequence label = info.loadLabel(pm);
-+                result.add(new DeviceApp(info.packageName, label != null ? label.toString() : info.packageName, isSystem));
++                result.add(new DeviceApp(info.packageName, resolveAppName(pm, info, launchIntent), isSystem));
 +            }
 +            Collections.sort(result, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
 +            return result;
@@ -55,5 +55,35 @@ index 00000000..7d08999b
 +            Ln.e("AppLister: failed to list installed apps", e);
 +            return Collections.emptyList();
 +        }
++    }
++
++    /**
++     * Resolve the best display name for an app.
++     *
++     * <p>Prefer the application label; fall back to the launcher activity's
++     * label when the former is missing. This avoids showing raw package names
++     * for apps that only declare a label on their launcher activity.
++     */
++    private static String resolveAppName(PackageManager pm, ApplicationInfo info, Intent launchIntent) {
++        CharSequence label = info.loadLabel(pm);
++        String appLabel = label != null ? label.toString().trim() : "";
++        // loadLabel() falls back to the package name when the application
++        // declares no label; treat that as "missing" too.
++        boolean hasRealLabel = !appLabel.isEmpty() && !appLabel.equals(info.packageName);
++        if (hasRealLabel) {
++            return appLabel;
++        }
++        try {
++            ResolveInfo ri = pm.resolveActivity(launchIntent, PackageManager.MATCH_DEFAULT_ONLY);
++            if (ri != null && ri.activityInfo != null) {
++                CharSequence activityLabel = ri.activityInfo.loadLabel(pm);
++                if (activityLabel != null && !activityLabel.toString().trim().isEmpty()) {
++                    return activityLabel.toString().trim();
++                }
++            }
++        } catch (Exception e) {
++            Ln.w("AppLister: failed to resolve launcher label for " + info.packageName, e);
++        }
++        return info.packageName;
 +    }
 +}
