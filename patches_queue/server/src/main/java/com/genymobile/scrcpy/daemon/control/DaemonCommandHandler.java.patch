@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..a04f5d60
+index 00000000..17611fef
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,382 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -90,6 +90,10 @@ index 00000000..a04f5d60
 +
 +    private final ExecutorService interactiveExecutor = Executors.newSingleThreadExecutor(new LooperThreadFactory("daemon-cmd-interactive"));
 +    private final ExecutorService lifecycleExecutor = Executors.newFixedThreadPool(4, new LooperThreadFactory("daemon-cmd-lifecycle"));
++    // Dedicated single-thread executor for daemon shutdown. Deliberately NOT
++    // shut down in close() so an EXIT_DAEMON task can always finish even after
++    // the other executors are stopped (the task itself calls close()).
++    private final ExecutorService exitExecutor = Executors.newSingleThreadExecutor(new LooperThreadFactory("daemon-cmd-exit"));
 +    private final Map<Integer, HandlerEntry> registryMap = new HashMap<>();
 +
 +    public DaemonCommandHandler(Controller controller,
@@ -297,7 +301,10 @@ index 00000000..a04f5d60
 +            Ln.i("handleExitDaemon: Quit request received, replying OK and shutting down...");
 +            sendSuccessResponse(msg, -1, "OK");
 +
-+            new Thread(() -> {
++            // Run on the dedicated exitExecutor (NOT shutdown by close()) so the
++            // daemon can always reach requestExit() + close() even though the
++            // task body itself calls close().
++            exitExecutor.submit(() -> {
 +                try {
 +                    Thread.sleep(100);
 +                } catch (InterruptedException e) {
@@ -306,7 +313,7 @@ index 00000000..a04f5d60
 +                }
 +                exitCoordinator.requestExit();
 +                close();
-+            }).start();
++            });
 +        });
 +
 +        register(DaemonControlMessages.TYPE_PING, ExecutionPolicy.FAST, (msg, ctx) -> {
@@ -363,8 +370,15 @@ index 00000000..a04f5d60
 +    private void sendErrorResponse(ControlMessage msg, Throwable t) {
 +        if (sender != null) {
 +            try {
-+                String errorMsg = t.getMessage() != null ? t.getMessage() : t.toString();
-+                DeviceMessage response = DaemonDeviceMessages.createGenericResponse(payload(msg).getSequence(), -1, -1, errorMsg);
++                // Full stack is already logged locally (Ln.e at the dispatch
++                // site). Only send a sanitized, short reason back to the client:
++                // the exception's simple class name plus (optional) message.
++                // Avoids leaking internal class paths / full toString().
++                String reason = t.getClass().getSimpleName();
++                if (t.getMessage() != null && !t.getMessage().isEmpty()) {
++                    reason += ": " + t.getMessage();
++                }
++                DeviceMessage response = DaemonDeviceMessages.createGenericResponse(payload(msg).getSequence(), -1, -1, reason);
 +                sender.send(response);
 +            } catch (Exception e) {
 +                Ln.e("Failed to send error response", e);

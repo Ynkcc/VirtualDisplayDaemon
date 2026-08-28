@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonArgs.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonArgs.java
 new file mode 100644
-index 00000000..843abedc
+index 00000000..e482b25c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonArgs.java
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,154 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -22,8 +22,19 @@ index 00000000..843abedc
 +    }
 +
 +    /**
++     * Daemon bootstrap option keys (all key=value form: daemon / daemon_port /
++     * daemon_bind_address / daemon_secret_token). They must never be forwarded to
++     * upstream Options.parse (see {@link #strip()}) nor overridable by a client
++     * via CONFIGURE_SESSION (see {@link #BLOCKED_CONFIGURE_KEYS}). Single source of
++     * truth so the two filters can never drift apart.
++     */
++    private static final Set<String> DAEMON_ONLY_KEYS = Collections.unmodifiableSet(
++            new java.util.HashSet<>(Arrays.asList(
++                    "daemon", "daemon_port", "daemon_bind_address", "daemon_secret_token")));
++
++    /**
 +     * 过滤掉所有的 daemon 专属参数，还原出供上游 Options.parse 使用的参数数组。
-+     * daemon 参数均为 key=value 形式：daemon / daemon_port / daemon_bind_address
++     * daemon 参数均为 key=value 形式，见 {@link #DAEMON_ONLY_KEYS}。
 +     */
 +    public static String[] strip(String[] args) {
 +        if (args == null) {
@@ -34,7 +45,7 @@ index 00000000..843abedc
 +            int eq = arg.indexOf('=');
 +            if (eq != -1) {
 +                String key = arg.substring(0, eq);
-+                if (key.equals("daemon") || key.equals("daemon_port") || key.equals("daemon_bind_address") || key.equals("daemon_secret_token")) {
++                if (DAEMON_ONLY_KEYS.contains(key)) {
 +                    continue;
 +                }
 +            }
@@ -78,13 +89,16 @@ index 00000000..843abedc
 +     * (scid, cleanup, power_*, tunnel_forward), or select non-mirroring modes
 +     * (list_*). Allowing a client to set them would break the session contract.
 +     */
-+    private static final Set<String> BLOCKED_CONFIGURE_KEYS = Collections.unmodifiableSet(
-+            new java.util.HashSet<>(Arrays.asList(
-+                    "daemon", "daemon_port", "daemon_bind_address", "daemon_secret_token",
-+                    "display_id", "new_display", "scid", "tunnel_forward",
-+                    "cleanup", "power_on", "power_off_on_close",
-+                    "list_encoders", "list_displays", "list_cameras",
-+                    "list_camera_sizes", "list_apps")));
++    private static final Set<String> BLOCKED_CONFIGURE_KEYS;
++    static {
++        java.util.HashSet<String> blocked = new java.util.HashSet<>(DAEMON_ONLY_KEYS);
++        blocked.addAll(Arrays.asList(
++                "display_id", "new_display", "scid", "tunnel_forward",
++                "cleanup", "power_on", "power_off_on_close",
++                "list_encoders", "list_displays", "list_cameras",
++                "list_camera_sizes", "list_apps"));
++        BLOCKED_CONFIGURE_KEYS = Collections.unmodifiableSet(blocked);
++    }
 +
 +    /**
 +     * Merge client-supplied scrcpy option overrides into the daemon base args,

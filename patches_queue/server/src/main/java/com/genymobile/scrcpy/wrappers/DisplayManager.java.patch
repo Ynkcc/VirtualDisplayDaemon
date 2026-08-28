@@ -1,19 +1,42 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java b/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
-index 1be04c3a..295d3e04 100644
+index 1be04c3a..13d36442 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
-@@ -48,7 +48,10 @@ public final class DisplayManager {
+@@ -19,6 +19,8 @@ import java.lang.reflect.Constructor;
+ import java.lang.reflect.Field;
+ import java.lang.reflect.Method;
+ import java.lang.reflect.Proxy;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+ 
+@@ -28,6 +30,10 @@ public final class DisplayManager {
+     // android.hardware.display.DisplayManager.EVENT_FLAG_DISPLAY_CHANGED
+     public static final long EVENT_FLAG_DISPLAY_CHANGED = 1L << 2;
+ 
++    // Cache of reflective fields keyed by "declaringClass:fieldName" to avoid
++    // re-running getDeclaredField() on every display-info read (hot path).
++    private static final Map<String, Field> FIELD_CACHE = new ConcurrentHashMap<>();
++
+     public interface DisplayListener {
+         /**
+          * Called whenever the properties of a logical {@link android.view.Display},
+@@ -48,7 +54,13 @@ public final class DisplayManager {
      private final Object manager; // instance of hidden class android.hardware.display.DisplayManagerGlobal
      private Method getDisplayInfoMethod;
      private Method createVirtualDisplayMethod;
 +    private Method createVirtualDisplayGlobalMethod;
 +    private Constructor<?> displayManagerCtor;
      private Method requestDisplayPowerMethod;
-+    private boolean requestDisplayPowerUsesInt; // true 表示第二个参数为 int（Display.STATE_*），false 表示 boolean
++    // Written lazily in getRequestDisplayPowerMethod() (potentially off the
++    // calling thread) and read from requestDisplayPower(); volatile to avoid a
++    // data race on the enum-ness of the second parameter.
++    private volatile boolean requestDisplayPowerUsesInt; // true 表示第二个参数为 int（Display.STATE_*），false 表示 boolean
  
      static DisplayManager create() {
          try {
-@@ -146,12 +149,51 @@ public final class DisplayManager {
+@@ -146,12 +158,73 @@ public final class DisplayManager {
                  // This field might not exist: <https://github.com/Genymobile/scrcpy/issues/6461>
                  uniqueId = null;
              }
@@ -36,17 +59,39 @@ index 1be04c3a..295d3e04 100644
          }
      }
  
++    private static Field cachedField(Class<?> cls, String fieldName) {
++        String key = cls.getName() + ":" + fieldName;
++        Field f = FIELD_CACHE.get(key);
++        if (f == null) {
++            try {
++                f = cls.getDeclaredField(fieldName);
++            } catch (NoSuchFieldException e) {
++                return null;
++            }
++            FIELD_CACHE.put(key, f);
++        }
++        return f;
++    }
++
 +    private static String getStringField(Object target, Class<?> cls, String fieldName) {
++        Field f = cachedField(cls, fieldName);
++        if (f == null) {
++            return null;
++        }
 +        try {
-+            return (String) cls.getDeclaredField(fieldName).get(target);
++            return (String) f.get(target);
 +        } catch (ReflectiveOperationException e) {
 +            return null;
 +        }
 +    }
 +
 +    private static int getIntField(Object target, Class<?> cls, String fieldName) {
++        Field f = cachedField(cls, fieldName);
++        if (f == null) {
++            return 0;
++        }
 +        try {
-+            return cls.getDeclaredField(fieldName).getInt(target);
++            return f.getInt(target);
 +        } catch (ReflectiveOperationException e) {
 +            return 0;
 +        }
@@ -66,7 +111,7 @@ index 1be04c3a..295d3e04 100644
      public int[] getDisplayIds() {
          try {
              return (int[]) manager.getClass().getMethod("getDisplayIds").invoke(manager);
-@@ -169,29 +211,131 @@ public final class DisplayManager {
+@@ -169,29 +242,131 @@ public final class DisplayManager {
      }
  
      public VirtualDisplay createVirtualDisplay(String name, int width, int height, int displayIdToMirror, Surface surface) throws Exception {

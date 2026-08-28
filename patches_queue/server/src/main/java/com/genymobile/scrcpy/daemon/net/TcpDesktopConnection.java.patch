@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..8007f25c
+index 00000000..461abbd4
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,398 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -22,8 +22,10 @@ index 00000000..8007f25c
 +import java.util.ArrayList;
 +import java.util.Collections;
 +import java.util.HashMap;
++import java.util.HashSet;
 +import java.util.List;
 +import java.util.Map;
++import java.util.Set;
 +
 +/**
 + * A single client session can now open multiple instances of the same role
@@ -53,11 +55,6 @@ index 00000000..8007f25c
 +    public static final int ROLE_AUDIO = 1;
 +    public static final int ROLE_CONTROL = 2;
 +    public static final int ROLE_NEGOTIATION = 3;
-+
-+    public static final int ROLE_BIT_VIDEO = 1 << ROLE_VIDEO;
-+    public static final int ROLE_BIT_AUDIO = 1 << ROLE_AUDIO;
-+    public static final int ROLE_BIT_CONTROL = 1 << ROLE_CONTROL;
-+    public static final int ROLE_BIT_ALL = ROLE_BIT_VIDEO | ROLE_BIT_AUDIO | ROLE_BIT_CONTROL;
 +
 +    private static final int DEVICE_NAME_FIELD_LENGTH = 64;
 +
@@ -156,7 +153,7 @@ index 00000000..8007f25c
 +            synchronized (fdChannels) {
 +                fdChannels.put(key, new FdChannel(socket, null));
 +            }
-+            Ln.i("TcpDesktopConnection[" + sessionId + "]: control socket bound " + key);
++            Ln.d("TcpDesktopConnection[" + sessionId + "]: control socket bound " + key);
 +            return ch;
 +        }
 +    }
@@ -170,7 +167,7 @@ index 00000000..8007f25c
 +            if (prev != null) {
 +                closeQuietly(prev.socket);
 +            }
-+            Ln.i("TcpDesktopConnection[" + sessionId + "]: video socket bound " + key + ", fd=" + fd);
++            Ln.d("TcpDesktopConnection[" + sessionId + "]: video socket bound " + key + ", fd=" + fd);
 +        }
 +        return ch;
 +    }
@@ -184,7 +181,7 @@ index 00000000..8007f25c
 +            if (prev != null) {
 +                closeQuietly(prev.socket);
 +            }
-+            Ln.i("TcpDesktopConnection[" + sessionId + "]: audio socket bound " + key + ", fd=" + fd);
++            Ln.d("TcpDesktopConnection[" + sessionId + "]: audio socket bound " + key + ", fd=" + fd);
 +        }
 +        return ch;
 +    }
@@ -209,16 +206,15 @@ index 00000000..8007f25c
 +
 +    /** Snapshot of currently bound (role,displayId) keys — stable for iteration. */
 +    public List<RoleDisplayKey> listBoundKeys() {
-+        List<RoleDisplayKey> keys = new ArrayList<>();
++        // Dedupe via a HashSet instead of O(n²) List.contains over the union.
++        Set<RoleDisplayKey> keys = new HashSet<>();
 +        synchronized (fdChannels) {
 +            keys.addAll(fdChannels.keySet());
 +        }
 +        synchronized (controlChannels) {
-+            for (RoleDisplayKey k : controlChannels.keySet()) {
-+                if (!keys.contains(k)) keys.add(k);
-+            }
++            keys.addAll(controlChannels.keySet());
 +        }
-+        return Collections.unmodifiableList(keys);
++        return Collections.unmodifiableList(new ArrayList<>(keys));
 +    }
 +
 +    // ------------------------------------------------------------------

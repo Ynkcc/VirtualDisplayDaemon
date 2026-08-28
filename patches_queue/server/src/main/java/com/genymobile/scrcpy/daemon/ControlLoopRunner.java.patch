@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
 new file mode 100644
-index 00000000..61104f07
+index 00000000..e07310dd
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,69 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.AsyncProcessor;
@@ -52,6 +52,19 @@ index 00000000..61104f07
 +        if (thread != null) {
 +            thread.join();
 +            Ln.i("Session[" + sessionId + "]: ctrlThread.join() returned");
++        }
++    }
++
++    /**
++     * Join the control thread with a timeout. Returns normally whether the
++     * thread exited or is still alive; callers should check
++     * {@link #getThread()#isAlive()} to detect a leak.
++     *
++     * @param timeoutMillis maximum wait time
++     */
++    public void join(long timeoutMillis) throws InterruptedException {
++        if (thread != null) {
++            thread.join(timeoutMillis);
 +        }
 +    }
 +

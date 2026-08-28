@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..f17277d0
+index 00000000..56dc6543
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,297 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -98,21 +98,29 @@ index 00000000..f17277d0
 +    VideoSubscriber subscribe(int sessionId, FileDescriptor videoFd) {
 +        Streamer streamer = new Streamer(videoFd, codec, sendStreamMeta, sendFrameMeta);
 +        VideoSubscriber sub = new VideoSubscriber(sessionId, streamer);
++        // Collect the cached frames under the lock (cheap: retain is a no-op for
++        // header/meta/config frames) but deliver them OUTSIDE the lock so the
++        // (possibly blocking) socket writes never serialize with the encode
++        // thread's fan-out.
++        List<Frame> cached = new ArrayList<>(3);
 +        synchronized (lock) {
 +            subscribers.add(sub);
 +            subscribersBySession.put(sessionId, sub);
 +            if (cachedHeader != null) {
 +                cachedHeader.retain();
-+                sub.deliver(cachedHeader);
++                cached.add(cachedHeader);
 +            }
 +            if (cachedMeta != null) {
 +                cachedMeta.retain();
-+                sub.deliver(cachedMeta);
++                cached.add(cachedMeta);
 +            }
 +            if (cachedConfigPacket != null) {
 +                cachedConfigPacket.retain();
-+                sub.deliver(cachedConfigPacket);
++                cached.add(cachedConfigPacket);
 +            }
++        }
++        for (Frame f : cached) {
++            sub.deliver(f);
 +        }
 +        sub.start();
 +        if (surfaceEncoder != null) {
@@ -212,6 +220,8 @@ index 00000000..f17277d0
 +
 +    @Override
 +    public void writeVideoHeader() throws IOException {
++        // Construct the Frame outside the lock: writePacket-like pool work must
++        // not serialize on the broadcaster lock with subscribe/unsubscribe.
 +        Frame f = Frame.header();
 +        synchronized (lock) {
 +            if (cachedHeader != null) {
@@ -238,6 +248,10 @@ index 00000000..f17277d0
 +
 +    @Override
 +    public void writePacket(ByteBuffer buffer, long pts, boolean config, boolean keyFrame) throws IOException {
++        // Frame.packet() does a ByteBufferPool allocation + full-packet memcpy;
++        // build it OUTSIDE the broadcaster lock so that cost does not serialize
++        // on subscribers/fan-out. writePacket is only ever invoked from this
++        // broadcaster's single encode thread, so it is safe to run unlocked.
 +        Frame f = Frame.packet(buffer, pts, config, keyFrame);
 +        synchronized (lock) {
 +            if (config) {

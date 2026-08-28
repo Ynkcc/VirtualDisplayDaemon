@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..ca12c149
+index 00000000..518409f1
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,195 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -101,6 +101,14 @@ index 00000000..ca12c149
 +     * Release a specific subscriber. If it was the last one for its displayId,
 +     * the broadcaster is shut down (encoder stopped, VD fallback surface
 +     * restored). The VD itself is not destroyed (refs/13 §7, A5).
++     *
++     * <p><b>Idempotent:</b> safe to call after {@link #releaseSession(sessionId)}
++     * has already dropped this session's subscription — the session no longer
++     * appears in {@code sessionDisplays} and the (sub, sessionId) pair is
++     * already gone from the broadcaster, so this becomes a no-op. This is the
++     * contract {@code ClientSession.cleanup()} relies on when it calls
++     * {@code releaseSession()} as a safety net and then stops each per-display
++     * video controller (which individually releases its subscriber).
 +     */
 +    public void releaseSubscriber(int displayId, int sessionId, VideoSubscriber sub) {
 +        FrameBroadcaster toShutdown = null;

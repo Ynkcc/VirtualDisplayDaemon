@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..6de8b25b
+index 00000000..6e1e08ca
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,528 @@
+@@ -0,0 +1,498 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -94,11 +94,14 @@ index 00000000..6de8b25b
 +
 +            if (mirrorDisplayId >= 0) {
 +                // Use the 5-arg createVirtualDisplay to mirror a specific display.
-+                // Note: the hidden 5-arg API does not take a DPI parameter; it
-+                // typically inherits density from the mirrored source.
++                // CONTRACT: the hidden 5-arg API does not take a DPI parameter —
++                // the mirrored display inherits density from the mirror SOURCE.
++                // Any requested dpi is intentionally ignored (the client UI
++                // enforces dpi>0, so callers must not depend on it under mirror).
++                // This is expected behaviour, not an error — hence info-level.
 +                if (dpi > 0) {
-+                    Ln.w("VirtualDisplayRegistry: mirroring displayId=" + mirrorDisplayId
-+                            + " — ignoring requested DPI=" + dpi + " (not supported by mirroring API)");
++                    Ln.i("VirtualDisplayRegistry: mirroring displayId=" + mirrorDisplayId
++                            + " — requested DPI=" + dpi + " is ignored (inherits source density)");
 +                }
 +                vd = ServiceManager.getDisplayManager()
 +                        .createVirtualDisplay(name, width, height, mirrorDisplayId, imageReader.getSurface());
@@ -125,24 +128,35 @@ index 00000000..6de8b25b
 +            return displayId;
 +        } catch (Exception e) {
 +            Ln.e("VirtualDisplayRegistry: failed to create virtual display", e);
-+            if (imageReader != null) {
-+                try {
-+                    imageReader.close();
-+                } catch (Exception ignore) {
-+                    Ln.d("VirtualDisplayRegistry: failed to close ImageReader during create failure cleanup: " + ignore.getMessage());
-+                }
-+            }
-+            if (readerThread != null) {
-+                readerThread.quitSafely();
-+            }
-+            if (vd != null) {
-+                try {
-+                    vd.release();
-+                } catch (Exception releaseEx) {
-+                    Ln.w("VirtualDisplayRegistry: failed to release leaked virtual display", releaseEx);
-+                }
-+            }
++            cleanupCreateFailure(vd, imageReader, readerThread);
 +            return -1;
++        }
++    }
++
++    /**
++     * Best-effort rollback of the partial resources allocated during a failed
++     * {@link #createVirtualDisplay(String, int, int, int, int, int)}: a leaked
++     * VirtualDisplay, its ImageReader, and the reader HandlerThread. Each step
++     * is independent and swallowed — this must never mask the original create
++     * exception.
++     */
++    private static void cleanupCreateFailure(VirtualDisplay vd, ImageReader imageReader, HandlerThread readerThread) {
++        if (vd != null) {
++            try {
++                vd.release();
++            } catch (Exception releaseEx) {
++                Ln.w("VirtualDisplayRegistry: failed to release leaked virtual display", releaseEx);
++            }
++        }
++        if (imageReader != null) {
++            try {
++                imageReader.close();
++            } catch (Exception ignore) {
++                Ln.d("VirtualDisplayRegistry: failed to close ImageReader during create failure cleanup: " + ignore.getMessage());
++            }
++        }
++        if (readerThread != null) {
++            readerThread.quitSafely();
 +        }
 +    }
 +
@@ -195,7 +209,7 @@ index 00000000..6de8b25b
 +                        + " (moveTasksToDefaultDisplay=false)");
 +            }
 +            session.close();
-+            Ln.i("VirtualDisplayRegistry: released virtual display id=" + displayId);
++            Ln.d("VirtualDisplayRegistry: released virtual display id=" + displayId);
 +            return true;
 +        } catch (Exception e) {
 +            Ln.e("VirtualDisplayRegistry: failed to release virtual display id=" + displayId, e);
@@ -222,7 +236,7 @@ index 00000000..6de8b25b
 +        synchronized (activeDisplaysLock) {
 +            displayUsers.computeIfAbsent(displayId, k -> new HashMap<>())
 +                    .merge(sessionId, 1, Integer::sum);
-+            Ln.i("VirtualDisplayRegistry: acquire display id=" + displayId + " for session " + sessionId 
++            Ln.d("VirtualDisplayRegistry: acquire display id=" + displayId + " for session " + sessionId 
 +                    + " (total users: " + displayUsers.get(displayId).size() + ")");
 +        }
 +    }
@@ -242,12 +256,12 @@ index 00000000..6de8b25b
 +                if (count != null) {
 +                    if (count > 1) {
 +                        users.put(sessionId, count - 1);
-+                        Ln.i("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
++                        Ln.d("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
 +                                + " refcount " + count + " → " + (count - 1) + " (remaining)");
 +                        return false;
 +                    } else {
 +                        users.remove(sessionId);
-+                        Ln.i("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
++                        Ln.d("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
 +                                + " released its last reference");
 +                    }
 +                }
@@ -429,11 +443,8 @@ index 00000000..6de8b25b
 +     *         whose DisplayInfo cannot be resolved are omitted
 +     */
 +    public com.genymobile.scrcpy.display.DisplayInfo[] getActiveDisplayInfos() {
-+        int[] ids = ServiceManager.getDisplayManager().getDisplayIds();
-+        if (ids == null) {
-+            ids = new int[0];
-+        }
-+        
++        int[] ids = getActiveDisplayIds();
++
 +        // Snapshot active sessions to avoid holding the lock during getDisplayInfo() calls
 +        Map<Integer, VirtualDisplaySession> sessionsSnapshot;
 +        synchronized (activeDisplaysLock) {
@@ -489,46 +500,5 @@ index 00000000..6de8b25b
 +            releaseVirtualDisplay(id);
 +        }
 +        Ln.i("VirtualDisplayRegistry: all virtual displays released");
-+    }
-+
-+    /**
-+     * Freeze a display's rotation and verify the freeze took effect, retrying a
-+     * few times to bridge the race where the WindowManager has not yet registered
-+     * a newly-created or just-resized display (freezeRotation would silently fail
-+     * in that case — WindowManager catches the exception internally).
-+     *
-+     * <p>This is a daemon-side workaround; it does not modify upstream
-+     * {@link com.genymobile.scrcpy.wrappers.WindowManager}.
-+     */
-+    private void freezeRotationWithRetry(int displayId, int rotation) {
-+        com.genymobile.scrcpy.wrappers.WindowManager wm = ServiceManager.getWindowManager();
-+        for (int attempt = 1; attempt <= 5; attempt++) {
-+            try {
-+                wm.freezeRotation(displayId, rotation);
-+            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: freezeRotation attempt " + attempt
-+                        + " threw for displayId=" + displayId, t);
-+            }
-+            try {
-+                if (wm.isRotationFrozen(displayId)) {
-+                    Ln.i("VirtualDisplayRegistry: froze rotation (ROTATION_" + rotation
-+                            + ") for display id=" + displayId + " (attempt " + attempt + ")");
-+                    return;
-+                }
-+            } catch (Throwable t) {
-+                // isRotationFrozen not supported on this version — assume freeze succeeded.
-+                Ln.i("VirtualDisplayRegistry: freezeRotation completed for display id=" + displayId
-+                        + " (isRotationFrozen check unavailable, attempt " + attempt + ")");
-+                return;
-+            }
-+            try {
-+                Thread.sleep(100 * attempt);
-+            } catch (InterruptedException ie) {
-+                Thread.currentThread().interrupt();
-+                return;
-+            }
-+        }
-+        Ln.w("VirtualDisplayRegistry: could not confirm rotation freeze for displayId="
-+                + displayId + " after 5 attempts (continuing — freeze may still apply asynchronously)");
 +    }
 +}

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..b2c61102
+index 00000000..680f631e
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,497 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -170,17 +170,23 @@ index 00000000..b2c61102
 +        if (exited.get() || phase == PHASE_CLOSED) {
 +            throw new RuntimeException("Session already exited");
 +        }
++        String[] merged = DaemonArgs.mergeOptions(baseArgs, optionsKv);
++        Options parsed = Options.parse(merged);
++
++        // Publish the parsed session options atomically with the
++        // "no video started yet" check. Holding videoControllers throughout the
++        // check+assign removes the window where an accept thread could create a
++        // video controller between the isEmpty() test and the assignment,
++        // leaving that controller with stale options. (onVideoSocket's
++        // putIfAbsent is also on this map; sessionOptions/sessionArgs are
++        // volatile so they are safely published to the creating thread.)
 +        synchronized (videoControllers) {
 +            if (!videoControllers.isEmpty()) {
 +                throw new RuntimeException("Cannot configure session after video streams started");
 +            }
++            this.sessionArgs = merged;
++            this.sessionOptions = parsed;
 +        }
-+
-+        String[] merged = DaemonArgs.mergeOptions(baseArgs, optionsKv);
-+        Options parsed = Options.parse(merged);
-+
-+        this.sessionArgs = merged;
-+        this.sessionOptions = parsed;
 +        this.declaredRolesMask = legacyRolesMask;
 +
 +        if (rolesEntries != null && !rolesEntries.isEmpty()) {
@@ -446,12 +452,19 @@ index 00000000..b2c61102
 +
 +        // Step 3: release all VD references held by this session.
 +        registry.releaseSession(sessionId);
-+        // Step 4: release all video subscribers for this session.
++        // Step 4: release all video subscribers held by this session. This is an
++        // idempotent safety net (drops every (sessionId, displayId) subscription
++        // and shuts down now-empty broadcasters). The per-controller
++        // stopVideoInternal() below also releases its own subscriber; that is a
++        // second, no-op release because releaseSubscriber is idempotent for an
++        // already-dropped subscription (see FrameBroadcasterRegistry doc).
 +        broadcasterRegistry.releaseSession(sessionId);
 +
-+        // Stop all per-display video controllers (releases subscribers a
-+        // second time — registry deduplicates repeated releaseSubscriber calls
-+        // for the same (displayId, sessionId, subscriber) so this is safe).
++        // Stop all per-display video controllers. stopVideoInternal() also
++        // releases the controller's own subscriber — harmless duplicate given
++        // releaseSubscriber idempotency — and tears down controller/session
++        // resources that releaseSession() does NOT own (it only touches the
++        // broadcaster registry).
 +        List<SessionVideoController> videoCopy = new ArrayList<>(videoControllers.values());
 +        videoControllers.clear();
 +        for (SessionVideoController vc : videoCopy) {
