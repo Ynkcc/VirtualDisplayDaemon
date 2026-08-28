@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
 new file mode 100644
-index 00000000..8a7b3c5f
+index 00000000..a1175fff
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,191 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.FakeContext;
@@ -144,6 +144,7 @@ index 00000000..8a7b3c5f
 +     *
 +     * @return the resolved label, or an empty string on any failure
 +     */
++    @SuppressWarnings("deprecation")
 +    private static String loadLabelFromApk(ApplicationInfo info) {
 +        AssetManager am = null;
 +        try {

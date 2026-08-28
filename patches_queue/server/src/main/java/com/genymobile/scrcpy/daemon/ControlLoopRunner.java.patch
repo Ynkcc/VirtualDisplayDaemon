@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
 new file mode 100644
-index 00000000..56c0d34d
+index 00000000..61104f07
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,56 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.AsyncProcessor;
@@ -53,5 +53,10 @@ index 00000000..56c0d34d
 +            thread.join();
 +            Ln.i("Session[" + sessionId + "]: ctrlThread.join() returned");
 +        }
++    }
++
++    /** The underlying thread (null until {@link #start} is called). */
++    public Thread getThread() {
++        return thread;
 +    }
 +}

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
 new file mode 100644
-index 00000000..f7445e3f
+index 00000000..d1fd41e8
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,310 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import android.os.Looper;
@@ -49,6 +49,7 @@ index 00000000..f7445e3f
 +
 +    private ExecutorService acceptExecutor;
 +    private ExecutorService clientExecutor;
++    private ExecutorService roleExecutor;
 +
 +    public DaemonServer(Options options, DaemonOptions daemonOptions, String[] baseArgs) {
 +        this.options = options;
@@ -83,6 +84,18 @@ index 00000000..f7445e3f
 +                    Looper.prepare();
 +                    r.run();
 +                }, "daemon-client");
++                t.setDaemon(true);
++                return t;
++            });
++            // Role sockets (ROLE_CONTROL/VIDEO/AUDIO) are dispatched off the
++            // single accept thread so a slow/blocked role handler (e.g. a
++            // stale Controller whose recv() can't be interrupted by stop())
++            // can never stall socket acceptance for other displays. This is
++            // the fix for "touch stops working until daemon restart": a stale
++            // control loop that never returns would otherwise block
++            // onControlSocket() -> join() forever on the accept thread.
++            roleExecutor = Executors.newFixedThreadPool(MAX_SESSIONS, r -> {
++                Thread t = new Thread(r, "daemon-role");
 +                t.setDaemon(true);
 +                return t;
 +            });
@@ -137,7 +150,17 @@ index 00000000..f7445e3f
 +                    case TcpDesktopConnection.ROLE_CONTROL:
 +                    case TcpDesktopConnection.ROLE_VIDEO:
 +                    case TcpDesktopConnection.ROLE_AUDIO:
-+                        handleRoleSocket(role, socket);
++                        // Dispatch off the accept thread. Negotiation stays
++                        // inline (it only creates the session), but role
++                        // handlers may block; never stall the accept loop.
++                        try {
++                            roleExecutor.execute(() -> handleRoleSocket(role, socket));
++                        } catch (RejectedExecutionException e) {
++                            Ln.w("Role socket rejected (roleExecutor shut down?)");
++                            try { socket.close(); } catch (IOException closeEx) {
++                                Ln.d("Failed to close rejected role socket: " + closeEx.getMessage());
++                            }
++                        }
 +                        break;
 +                    default:
 +                        Ln.w("Unknown socket role: " + role);
@@ -271,6 +294,9 @@ index 00000000..f7445e3f
 +        }
 +        if (clientExecutor != null) {
 +            clientExecutor.shutdown();
++        }
++        if (roleExecutor != null) {
++            roleExecutor.shutdown();
 +        }
 +
 +        TcpServerSocketListener.closeServerSocket();

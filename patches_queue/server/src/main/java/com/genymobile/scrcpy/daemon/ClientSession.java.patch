@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..c7818f6e
+index 00000000..b2c61102
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,472 @@
+@@ -0,0 +1,484 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -289,7 +289,19 @@ index 00000000..c7818f6e
 +                stale.stop();
 +                ControlLoopRunner sr = controlLoopRunners.remove(displayId);
 +                if (sr != null) {
-+                    try { sr.join(); } catch (InterruptedException ignored) {
++                    // Join with a timeout as a safety net: a stale controller
++                    // whose recv() is blocked on a socket that could not be
++                    // closed would otherwise hold this thread forever. With a
++                    // timeout we log and move on (the accept loop is no longer
++                    // on this thread after the DaemonServer refactor, but a
++                    // leaked loop still must not wedge a role thread).
++                    try {
++                        sr.join(3000);
++                        if (sr.getThread() != null && sr.getThread().isAlive()) {
++                            Ln.w("Session[" + sessionId + "]: stale control loop for displayId=" + displayId
++                                    + " did not stop within 3s; leaking daemon thread");
++                        }
++                    } catch (InterruptedException ignored) {
 +                        Thread.currentThread().interrupt();
 +                    }
 +                }
