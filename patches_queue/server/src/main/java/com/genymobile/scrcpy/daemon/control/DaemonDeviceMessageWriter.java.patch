@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java
 new file mode 100644
-index 00000000..f07a7264
+index 00000000..c0ed1c06
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,82 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.DeviceMessage;
@@ -56,6 +56,11 @@ index 00000000..f07a7264
 +                    dos.writeInt(info.getRotation());
 +                    dos.writeInt(info.getMirrorDisplayId());
 +                    dos.writeByte(info.isOwned() ? 1 : 0);
++                    dos.writeInt(info.getOwnerUid());
++                    String ownerPkg = info.getOwnerPackageName();
++                    byte[] ownerBytes = ownerPkg != null ? ownerPkg.getBytes(StandardCharsets.UTF_8) : new byte[0];
++                    dos.writeInt(ownerBytes.length);
++                    dos.write(ownerBytes);
 +                }
 +                return true;
 +            case DaemonDeviceMessages.TYPE_RESPONSE_APPS_LIST:

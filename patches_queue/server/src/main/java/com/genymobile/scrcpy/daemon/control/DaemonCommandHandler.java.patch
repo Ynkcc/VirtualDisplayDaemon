@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..d4538bef
+index 00000000..0f3719c2
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,366 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -178,9 +178,11 @@ index 00000000..d4538bef
 +
 +        register(DaemonControlMessages.TYPE_RELEASE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {
 +            DaemonControlMessage dto = payload(msg);
-+            // Decrement session reference. Display is destroyed only when refcount reaches 0.
-+            boolean destroyed = registry.release(dto.getDisplayId(), sessionId);
-+            sendSuccessResponse(msg, dto.getDisplayId(), destroyed ? "DESTROYED" : "RELEASED");
++            // Manual removal: force-destroy the display regardless of session refs,
++            // clearing the daemon-owned persistent reference too. This is the ONLY
++            // path that destroys a display (creation & removal are fully user-managed).
++            boolean destroyed = registry.releaseVirtualDisplay(dto.getDisplayId());
++            sendSuccessResponse(msg, dto.getDisplayId(), destroyed ? "DESTROYED" : "FAILED");
 +        });
 +
 +        register(DaemonControlMessages.TYPE_RESIZE_VIRTUAL_DISPLAY, ExecutionPolicy.SLOW, (msg, ctx) -> {

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..8dbf6232
+index 00000000..40703101
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,505 @@
+@@ -0,0 +1,511 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -236,6 +236,10 @@ index 00000000..8dbf6232
 +                }
 +
 +                if (users.isEmpty()) {
++                    // Destroy only when there are no references at all. The daemon-owned
++                    // PERSISTENT_SESSION_ID reference acquired at CREATE keeps the display
++                    // alive across stream teardown / session disconnect; only an explicit
++                    // manual removal (releaseVirtualDisplay) destroys it.
 +                    displayUsers.remove(displayId);
 +                    session = activeSessions.remove(displayId);
 +                }
@@ -440,7 +444,9 @@ index 00000000..8dbf6232
 +                        info.getDpi(),
 +                        info.getUniqueId(),
 +                        mirrorDisplayId,
-+                        owned
++                        owned,
++                        info.getOwnerPackageName(),
++                        info.getOwnerUid()
 +                    );
 +                    result.add(enrichedInfo);
 +                } else {
