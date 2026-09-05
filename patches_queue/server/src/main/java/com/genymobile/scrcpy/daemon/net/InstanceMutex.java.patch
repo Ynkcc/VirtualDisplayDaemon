@@ -1,0 +1,52 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/InstanceMutex.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/InstanceMutex.java
+new file mode 100644
+index 00000000..d50c8e13
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/InstanceMutex.java
+@@ -0,0 +1,46 @@
++package com.genymobile.scrcpy.daemon.net;
++
++import android.net.LocalServerSocket;
++
++import com.genymobile.scrcpy.util.Ln;
++
++import java.io.IOException;
++
++/**
++ * Port-independent single-instance guard. Binds a fixed abstract-namespace
++ * LocalServerSocket; the kernel releases it automatically on process death,
++ * so no stale lock file can survive a killed daemon.
++ */
++public final class InstanceMutex {
++
++    public static final String DEFAULT_NAME = "vd_daemon_instance";
++
++    private static LocalServerSocket socket;
++
++    private InstanceMutex() {
++    }
++
++    public static synchronized void acquire(String name) throws IOException {
++        if (socket != null) {
++            return;
++        }
++        try {
++            socket = new LocalServerSocket(name);
++        } catch (IOException e) {
++            throw new IOException("another daemon instance is already running (mutex socket '" + name + "' is held)", e);
++        }
++        Ln.i("InstanceMutex acquired: '" + name + "'");
++    }
++
++    public static synchronized void release() {
++        if (socket != null) {
++            try {
++                socket.close();
++                Ln.i("InstanceMutex released");
++            } catch (IOException e) {
++                Ln.w("InstanceMutex: failed to close mutex socket: " + e.getMessage());
++            }
++            socket = null;
++        }
++    }
++}

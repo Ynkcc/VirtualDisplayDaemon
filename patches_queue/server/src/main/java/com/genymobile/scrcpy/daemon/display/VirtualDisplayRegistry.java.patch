@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..9f60a6a9
+index 00000000..584213d5
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,490 @@
+@@ -0,0 +1,509 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -286,6 +286,25 @@ index 00000000..9f60a6a9
 +            Ln.i("VirtualDisplayRegistry: destroying display " + displayId + " because session " + sessionId + " was the last user");
 +            releaseVirtualDisplay(displayId);
 +        }
++    }
++
++    /**
++     * Record {@code surface} as the session's external surface (the encoder's
++     * MediaCodec input surface) and bind it to the virtual display. While set,
++     * {@link #resizeVirtualDisplay} only resizes the display and leaves the
++     * ImageReader untouched — swapping the reader surface over the encoder's
++     * input surface would starve the encoder (black screen).
++     */
++    public void markExternalSurface(int displayId, Surface surface) {
++        VirtualDisplaySession session;
++        synchronized (lock) {
++            session = activeSessions.get(displayId);
++        }
++        if (session == null) {
++            Ln.w("VirtualDisplayRegistry: cannot mark external surface, display id=" + displayId + " not found");
++            return;
++        }
++        session.setExternalSurface(surface);
 +    }
 +
 +    public boolean resizeVirtualDisplay(int displayId, int width, int height, int dpi) {

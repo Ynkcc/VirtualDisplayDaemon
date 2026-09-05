@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
 new file mode 100644
-index 00000000..be3daef0
+index 00000000..5f77cab8
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,346 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import android.os.Looper;
@@ -11,6 +11,7 @@ index 00000000..be3daef0
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.daemon.display.VirtualDisplayRegistry;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
++import com.genymobile.scrcpy.daemon.net.InstanceMutex;
 +import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +import com.genymobile.scrcpy.daemon.net.TcpServerSocketListener;
 +import com.genymobile.scrcpy.daemon.video.FrameBroadcasterRegistry;
@@ -79,6 +80,9 @@ index 00000000..be3daef0
 +        Ln.i("DaemonServer starting on port " + daemonOptions.getPort() + ", bind=" + daemonOptions.getBindAddress());
 +
 +        try {
++            // Acquire the port-independent single-instance guard BEFORE binding:
++            // even with a different bind port, a second daemon must fail here.
++            InstanceMutex.acquire(InstanceMutex.DEFAULT_NAME);
 +            TcpServerSocketListener.initServerSocket(options.getScid(), daemonOptions.getPort(), daemonOptions.getBindAddress());
 +
 +            acceptExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -331,6 +335,7 @@ index 00000000..be3daef0
 +        }
 +
 +        TcpServerSocketListener.closeServerSocket();
++        InstanceMutex.release();
 +    }
 +
 +    public void requestExit() {

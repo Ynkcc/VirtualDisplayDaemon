@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
-index 55d6e11b..24ca636c 100644
+index 55d6e11b..fedcf4b8 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 @@ -87,6 +87,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
@@ -15,7 +15,19 @@ index 55d6e11b..24ca636c 100644
      private final boolean supportsInputEvents;
      private final ControlChannel controlChannel;
      private final CleanUp cleanUp;
-@@ -110,9 +116,23 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -103,6 +109,11 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+     private final Object displayDataAvailable = new Object(); // condition variable
+ 
+     private long lastTouchDown;
++    // Rate-limited logging for size-mismatched positional events: these are
++    // silently dropped and are the signature of a stalled/black video stream
++    // (client keeps its old size, server rebuilt with another). Spamming WARN
++    // per event would flood logcat, so gate to once per second.
++    private long lastSizeMismatchLog;
+     private final PointersState pointersState = new PointersState();
+     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
+     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
+@@ -110,9 +121,23 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      private boolean keepDisplayPowerOff;
  
      // Used for resetting video encoding on RESET_VIDEO message or for sending camera controls
@@ -40,7 +52,7 @@ index 55d6e11b..24ca636c 100644
          this.camera = options.getVideoSource() == VideoSource.CAMERA;
          this.controlChannel = controlChannel;
          this.cleanUp = cleanUp;
-@@ -120,6 +140,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -120,6 +145,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          if (this.camera) {
              // Unused for camera
              this.displayId = Device.DISPLAY_ID_NONE;
@@ -48,7 +60,7 @@ index 55d6e11b..24ca636c 100644
              this.supportsInputEvents = false;
              this.sender = null;
              this.clipboardAutosync = false;
-@@ -128,7 +149,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -128,7 +154,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              return;
          }
  
@@ -58,7 +70,7 @@ index 55d6e11b..24ca636c 100644
  
          this.clipboardAutosync = options.getClipboardAutosync();
          this.powerOn = options.getPowerOn();
-@@ -136,7 +158,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -136,7 +163,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          initPointers();
          sender = new DeviceMessageSender(controlChannel);
  
@@ -67,7 +79,7 @@ index 55d6e11b..24ca636c 100644
          if (!supportsInputEvents) {
              Ln.w("Input events are not supported for secondary displays before Android 10");
          }
-@@ -165,6 +187,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -165,6 +192,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
  
      @Override
      public void onNewVirtualDisplay(int virtualDisplayId, PositionMapper positionMapper) {
@@ -77,7 +89,7 @@ index 55d6e11b..24ca636c 100644
          DisplayData data = new DisplayData(virtualDisplayId, positionMapper);
          DisplayData old = this.displayData.getAndSet(data);
          if (old == null) {
-@@ -179,6 +204,16 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -179,6 +209,16 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          this.surfaceCapture = surfaceCapture;
      }
  
@@ -94,7 +106,7 @@ index 55d6e11b..24ca636c 100644
      private UhidManager getUhidManager() {
          if (uhidManager == null) {
              int uhidDisplayId = displayId;
-@@ -437,6 +472,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -437,6 +477,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              }
          }
  
@@ -105,7 +117,26 @@ index 55d6e11b..24ca636c 100644
          throw new AssertionError("Unexpected message type: " + type);
      }
  
-@@ -506,6 +545,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -492,10 +536,14 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+         if (displayData != null) {
+             point = displayData.positionMapper.map(position);
+             if (point == null) {
+-                if (Ln.isEnabled(Ln.Level.VERBOSE)) {
+-                    Size eventSize = position.getScreenSize();
+-                    Size currentSize = displayData.positionMapper.getVideoSize();
+-                    Ln.v("Ignore positional event generated for size " + eventSize + " (current size is " + currentSize + ")");
++                Size eventSize = position.getScreenSize();
++                Size currentSize = displayData.positionMapper.getVideoSize();
++                long now = SystemClock.uptimeMillis();
++                if (now - lastSizeMismatchLog > 1000) {
++                    lastSizeMismatchLog = now;
++                    Ln.w("Dropping positional events: client screen size " + eventSize
++                            + " != current video size " + currentSize
++                            + " (stale encoder / missed session meta?)");
+                 }
+                 return null;
+             }
+@@ -506,6 +554,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              targetDisplayId = displayId;
          }
  
@@ -116,7 +147,7 @@ index 55d6e11b..24ca636c 100644
          return Pair.create(point, targetDisplayId);
      }
  
-@@ -748,6 +791,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -748,6 +800,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private int getActionDisplayId() {
@@ -126,7 +157,7 @@ index 55d6e11b..24ca636c 100644
          if (displayId != Device.DISPLAY_ID_NONE) {
              // Real screen mirrored, use the source display id
              return displayId;
-@@ -762,6 +808,18 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -762,6 +817,18 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          return data.virtualDisplayId;
      }
  
@@ -145,7 +176,7 @@ index 55d6e11b..24ca636c 100644
      private void startAppAsync(String name) {
          if (startAppExecutor == null) {
              startAppExecutor = Executors.newSingleThreadExecutor();
-@@ -877,8 +935,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -877,8 +944,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private void resizeDisplay(int width, int height) {

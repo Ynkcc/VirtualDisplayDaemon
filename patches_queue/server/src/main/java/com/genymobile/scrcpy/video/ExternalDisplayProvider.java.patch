@@ -1,14 +1,25 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java b/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java
 new file mode 100644
-index 00000000..e0ff18ed
+index 00000000..628a6ef5
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,19 @@
 +package com.genymobile.scrcpy.video;
 +
 +import android.hardware.display.VirtualDisplay;
++import android.view.Surface;
 +
 +public interface ExternalDisplayProvider {
 +    VirtualDisplay get(int displayId);
 +    void restore(int displayId);
++
++    /**
++     * Bind an external (non-fallback) surface — typically the encoder's MediaCodec
++     * input surface — to the virtual display and record it in the session. While an
++     * external surface is bound, resize must keep the ImageReader untouched (the
++     * reader is only a fallback consumer).
++     */
++    default void markExternalSurface(int displayId, Surface surface) {
++        // Default no-op for providers that do not track surfaces.
++    }
 +}

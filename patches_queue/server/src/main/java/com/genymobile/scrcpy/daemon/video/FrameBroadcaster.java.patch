@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..9c496089
+index 00000000..5d87dfd2
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,333 @@
+@@ -0,0 +1,351 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -87,6 +87,24 @@ index 00000000..9c496089
 +                surfaceEncoder.start(fatalError -> {
 +                    Ln.i("FrameBroadcaster[" + displayId + "]: encoder terminated, fatal=" + fatalError);
 +                    started.set(false);
++                    if (fatalError) {
++                        // The broadcaster is dead weight: without a running
++                        // encoder it can never emit frames again, and clients
++                        // would hang on a black stream indefinitely (the old
++                        // "sometimes it heals, sometimes only a daemon restart
++                        // helps" symptom). Close every subscriber's video
++                        // socket so clients observe EOF and can re-bind; the
++                        // last released subscriber tears this broadcaster down
++                        // via the registry, and the next subscribe builds a
++                        // fresh one.
++                        List<VideoSubscriber> subs;
++                        synchronized (lock) {
++                            subs = new ArrayList<>(subscribers);
++                        }
++                        for (VideoSubscriber sub : subs) {
++                            sub.close();
++                        }
++                    }
 +                });
 +                surfaceEncoder.join();
 +            } catch (InterruptedException e) {

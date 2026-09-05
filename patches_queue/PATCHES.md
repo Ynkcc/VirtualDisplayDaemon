@@ -56,6 +56,7 @@
 | `daemon/display/RotationController.java.patch` | `daemon/display/RotationController.java` |
 | `daemon/display/VirtualDisplayRegistry.java.patch` | `daemon/display/VirtualDisplayRegistry.java` |
 | `daemon/display/VirtualDisplaySession.java.patch` | `daemon/display/VirtualDisplaySession.java` |
+| `daemon/net/InstanceMutex.java.patch` | `daemon/net/InstanceMutex.java` |
 | `daemon/net/TcpDesktopConnection.java.patch` | `daemon/net/TcpDesktopConnection.java` |
 | `daemon/net/TcpServerSocketListener.java.patch` | `daemon/net/TcpServerSocketListener.java` |
 | `daemon/SessionConfigurator.java.patch` | `daemon/SessionConfigurator.java` |
