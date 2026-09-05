@@ -1,8 +1,8 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-index 0768181a..b3a41ebe 100644
+index 0768181a..6b117738 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-@@ -31,12 +31,35 @@ import java.util.Locale;
+@@ -31,12 +31,38 @@ import java.util.Locale;
  public class ScreenCapture extends SurfaceCapture {
  
      private final VirtualDisplayListener vdListener;
@@ -16,6 +16,9 @@ index 0768181a..b3a41ebe 100644
 +    private boolean isDaemonManaged;
 +
 +    private ExternalDisplayProvider externalDisplayProvider;
++
++    /** Size the daemon virtual display was last resized/bound to (null = never). */
++    private Size daemonVdBoundedSize;
 +
 +    public void setExternalDisplayProvider(ExternalDisplayProvider provider) {
 +        this.externalDisplayProvider = provider;
@@ -39,7 +42,7 @@ index 0768181a..b3a41ebe 100644
      private VideoConstraints videoConstraints;
  
      private DisplayInfo displayInfo;
-@@ -111,10 +134,15 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -111,10 +137,15 @@ public class ScreenCapture extends SurfaceCapture {
              SurfaceControl.destroyDisplay(display);
              display = null;
          }
@@ -56,7 +59,7 @@ index 0768181a..b3a41ebe 100644
  
          Size inputSize;
          if (transform != null) {
-@@ -132,27 +160,34 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -132,27 +163,34 @@ public class ScreenCapture extends SurfaceCapture {
          try {
              virtualDisplay = ServiceManager.getDisplayManager()
                      .createVirtualDisplay("scrcpy", inputSize.getWidth(), inputSize.getHeight(), displayId, surface);
@@ -111,7 +114,7 @@ index 0768181a..b3a41ebe 100644
                  }
              }
          }
-@@ -168,18 +203,97 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -168,18 +206,110 @@ public class ScreenCapture extends SurfaceCapture {
              } else {
                  // The positions are relative to the virtual display, not the original display (so use inputSize, not deviceSize!)
                  positionMapper = PositionMapper.create(videoSize, transform, inputSize);
@@ -143,6 +146,19 @@ index 0768181a..b3a41ebe 100644
 +        try {
 +            if (virtualDisplay != null) {
 +                virtualDisplay.setSurface(null);
++            }
++            // Follow the upstream strategy: the mirror virtual display is (re)created
++            // at the current display logical size (which is rotation-adjusted), so a
++            // display rotation is baked into the composed output buffer and the video
++            // stream stays self-consistent with videoSize/PositionMapper. The daemon
++            // VD is long-lived and its size is frozen at creation time, so resize it
++            // to the current logical size before binding instead.
++            Size displaySize = displayInfo != null ? displayInfo.getSize() : null;
++            if (displaySize != null && !displaySize.equals(daemonVdBoundedSize)) {
++                daemonVD.resize(displaySize.getWidth(), displaySize.getHeight(), displayInfo.getDpi());
++                daemonVdBoundedSize = displaySize;
++                Ln.i("ScreenCapture: daemon virtual display resized to "
++                        + displaySize.getWidth() + "x" + displaySize.getHeight());
 +            }
 +            // Bind via the provider so the registry records the encoder surface
 +            // as "external". Without this marker, resizeVirtualDisplay replaces
@@ -210,7 +226,7 @@ index 0768181a..b3a41ebe 100644
      }
  
      @Override
-@@ -191,8 +305,13 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -191,9 +321,15 @@ public class ScreenCapture extends SurfaceCapture {
              display = null;
          }
          if (virtualDisplay != null) {
@@ -223,5 +239,7 @@ index 0768181a..b3a41ebe 100644
              virtualDisplay = null;
 +            isDaemonManaged = false;
          }
++        daemonVdBoundedSize = null;
      }
  
+     @Override
