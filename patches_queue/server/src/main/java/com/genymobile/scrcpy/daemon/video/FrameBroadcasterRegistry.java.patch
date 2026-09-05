@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..fdf7e76a
+index 00000000..2322ede4
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,206 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -160,6 +160,21 @@ index 00000000..fdf7e76a
 +            Ln.i("FrameBroadcasterRegistry: released session " + sessionId
 +                    + " subscribers on displayIds=" + affected
 +                    + (!toShutdown.isEmpty() ? " (broadcasters shut down)" : ""));
++        }
++    }
++
++    /**
++     * Wire {@code controller} as the VirtualDisplayListener of the broadcaster
++     * for {@code displayId} (if one exists). Fixes video-first ordering where
++     * the broadcaster was created before any control socket existed.
++     */
++    public void attachListener(int displayId, Controller controller) {
++        FrameBroadcaster b;
++        synchronized (lock) {
++            b = broadcasters.get(displayId);
++        }
++        if (b != null) {
++            b.setController(controller);
 +        }
 +    }
 +

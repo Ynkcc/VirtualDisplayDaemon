@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java
 new file mode 100644
-index 00000000..da423e38
+index 00000000..838c5a1e
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,137 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -33,14 +33,43 @@ index 00000000..da423e38
 + */
 +public final class DaemonVideoPipeline {
 +
++    /**
++     * Mutable VirtualDisplayListener indirection. The broadcaster may be created
++     * before the control socket (video-first ordering), at which point no
++     * Controller exists. The proxy caches the last (virtualDisplayId,
++     * PositionMapper) notification and re-delivers it whenever a delegate is
++     * bound, so a late-binding Controller still receives its display data.
++     */
++    public static final class VdListenerProxy implements VirtualDisplayListener {
++        private volatile VirtualDisplayListener delegate = (virtualDisplayId, positionMapper) -> { };
++        private int virtualDisplayId = -1;
++        private com.genymobile.scrcpy.control.PositionMapper positionMapper;
++
++        public synchronized void setDelegate(VirtualDisplayListener newDelegate) {
++            delegate = newDelegate;
++            if (newDelegate != null && virtualDisplayId != -1) {
++                newDelegate.onNewVirtualDisplay(virtualDisplayId, positionMapper);
++            }
++        }
++
++        @Override
++        public synchronized void onNewVirtualDisplay(int virtualDisplayId, com.genymobile.scrcpy.control.PositionMapper positionMapper) {
++            this.virtualDisplayId = virtualDisplayId;
++            this.positionMapper = positionMapper;
++            delegate.onNewVirtualDisplay(virtualDisplayId, positionMapper);
++        }
++    }
++
 +    /** Immutable holder for the constructed pipeline components. */
 +    public static final class Built {
 +        private final SurfaceCapture surfaceCapture;
 +        private final SurfaceEncoder surfaceEncoder;
++        private final VdListenerProxy vdListenerProxy;
 +
-+        Built(SurfaceCapture surfaceCapture, SurfaceEncoder surfaceEncoder) {
++        Built(SurfaceCapture surfaceCapture, SurfaceEncoder surfaceEncoder, VdListenerProxy vdListenerProxy) {
 +            this.surfaceCapture = surfaceCapture;
 +            this.surfaceEncoder = surfaceEncoder;
++            this.vdListenerProxy = vdListenerProxy;
 +        }
 +
 +        public SurfaceCapture getSurfaceCapture() {
@@ -49,6 +78,11 @@ index 00000000..da423e38
 +
 +        public SurfaceEncoder getSurfaceEncoder() {
 +            return surfaceEncoder;
++        }
++
++        /** Non-null only when no controller existed at build time (video-first ordering). */
++        public VdListenerProxy getVdListenerProxy() {
++            return vdListenerProxy;
 +        }
 +    }
 +
@@ -90,15 +124,20 @@ index 00000000..da423e38
 +        // ScreenCapture needs a VirtualDisplayListener; Controller implements it. When the
 +        // controller is not yet wired (control socket not bound), fall back to a no-op listener
 +        // so the capture can still be constructed.
-+        VirtualDisplayListener listener = controller != null ? controller
-+                : (virtualDisplayId, positionMapper) -> {
-+                };
++        VirtualDisplayListener listener;
++        if (controller != null) {
++            listener = controller;
++        } else {
++            // No controller yet (video socket arrived first): bind a proxy so a
++            // late-binding controller can still be wired via setDelegate().
++            listener = new VdListenerProxy();
++        }
 +        ScreenCapture screen = new ScreenCapture(listener, captureOptions);
 +        screen.setExternalDisplayProvider(surfaceBroker);
 +        SurfaceCapture surfaceCapture = screen;
 +
 +        SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, sink, captureOptions);
 +
-+        return new Built(surfaceCapture, surfaceEncoder);
++        return new Built(surfaceCapture, surfaceEncoder, listener instanceof VdListenerProxy ? (VdListenerProxy) listener : null);
 +    }
 +}

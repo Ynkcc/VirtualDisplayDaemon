@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
 new file mode 100644
-index 00000000..d1fd41e8
+index 00000000..483235c3
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,316 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import android.os.Looper;
@@ -138,7 +138,9 @@ index 00000000..d1fd41e8
 +                try {
 +                    role = TcpDesktopConnection.readSocketRole(socket);
 +                } catch (IOException e) {
-+                    Ln.w("Failed to read socket role: " + e.getMessage());
++                    // SocketTimeoutException lands here too (handshake timeout).
++                    Ln.w("Failed to read socket role: " + e.getClass().getSimpleName()
++                            + (e.getMessage() != null ? ": " + e.getMessage() : "") + " from " + ip);
 +                    socket.close();
 +                    continue;
 +                }
@@ -212,6 +214,8 @@ index 00000000..d1fd41e8
 +
 +        ClientSession session;
 +        try {
++            // Negotiation handshake done — enter the long-lived data phase.
++            TcpDesktopConnection.clearSoTimeout(socket);
 +            session = new ClientSession(socket, sessionId, options, baseArgs, registry, surfaceBroker, exitCoordinator, this, broadcasterRegistry);
 +        } catch (IOException e) {
 +            Ln.w("Failed to create client session: " + e.getMessage());
@@ -246,6 +250,8 @@ index 00000000..d1fd41e8
 +                socket.close();
 +                return;
 +            }
++            // Role handshake done — enter the long-lived data phase.
++            TcpDesktopConnection.clearSoTimeout(socket);
 +            switch (role) {
 +                case TcpDesktopConnection.ROLE_CONTROL:
 +                    session.onControlSocket(displayId, socket);

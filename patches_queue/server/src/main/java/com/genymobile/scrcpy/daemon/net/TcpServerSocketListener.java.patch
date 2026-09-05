@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
 new file mode 100644
-index 00000000..d9a9e4e0
+index 00000000..cf040dee
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,159 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -47,6 +47,11 @@ index 00000000..d9a9e4e0
 +        List<String> addressesToBind = new ArrayList<>();
 +        if (bindAddress != null && !bindAddress.isEmpty()) {
 +            addressesToBind.add(bindAddress);
++            if ("::".equals(bindAddress)) {
++                // 双栈：:: 在 bindv6only=0 时已覆盖 IPv4-mapped 连接，此时对 0.0.0.0 的
++                // 二次绑定会 EADDRINUSE；若 bindv6only=1 则该绑定成功兜底 IPv4。两种情况均正确。
++                addressesToBind.add("0.0.0.0");
++            }
 +        } else {
 +            addressesToBind.add("127.0.0.1");
 +        }
@@ -64,6 +69,15 @@ index 00000000..d9a9e4e0
 +                    while (!closed) {
 +                        try {
 +                            Socket s = ss.accept();
++                            // Guard the handshake phase: without a read timeout a
++                            // port scan or a peer dying mid-handshake would block
++                            // this accept thread forever. Cleared by the handlers
++                            // once the socket enters its data phase.
++                            try {
++                                s.setSoTimeout(TcpDesktopConnection.HANDSHAKE_SO_TIMEOUT_MS);
++                            } catch (java.net.SocketException se) {
++                                Ln.w("TcpServerSocketListener: failed to set handshake soTimeout: " + se.getMessage());
++                            }
 +                            acceptedSockets.put(s);
 +                        } catch (IOException e) {
 +                            if (!closed) {
@@ -80,10 +94,12 @@ index 00000000..d9a9e4e0
 +                thread.start();
 +                acceptThreads.add(thread);
 +            } catch (java.net.BindException e) {
-+                Ln.e("Port " + port + " already in use on " + addr + ". Close other scrcpy daemon instances first.");
 +                if (addressesToBind.size() == 1 || addr.equals(bindAddress)) {
++                    Ln.e("Port " + port + " already in use on " + addr + ". Close other scrcpy daemon instances first.");
 +                    throw e;
 +                }
++                // 辅助地址绑定失败可容忍：双栈主地址通常已覆盖
++                Ln.i("TcpServerSocketListener: " + addr + " not bound (likely covered by dual-stack " + bindAddress + "): " + e.getMessage());
 +            } catch (IOException e) {
 +                Ln.e("Failed to bind to " + addr + ":" + port, e);
 +                if (addressesToBind.size() == 1 || addr.equals(bindAddress)) {

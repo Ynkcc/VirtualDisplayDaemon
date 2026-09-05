@@ -1,0 +1,95 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/control/UhidManager.java b/server/src/main/java/com/genymobile/scrcpy/control/UhidManager.java
+index 20532c0b..18835534 100644
+--- a/server/src/main/java/com/genymobile/scrcpy/control/UhidManager.java
++++ b/server/src/main/java/com/genymobile/scrcpy/control/UhidManager.java
+@@ -19,6 +19,7 @@ import java.io.InterruptedIOException;
+ import java.nio.ByteBuffer;
+ import java.nio.ByteOrder;
+ import java.nio.charset.StandardCharsets;
++import java.util.concurrent.atomic.AtomicInteger;
+ 
+ public final class UhidManager {
+ 
+@@ -32,25 +33,30 @@ public final class UhidManager {
+ 
+     private static final int SIZE_OF_UHID_EVENT = 4380; // sizeof(struct uhid_event)
+ 
+-    // Must be unique across the system
+-    private static final String INPUT_PORT = "scrcpy:" + Os.getpid();
++    // Unique across the system. Per-instance suffix so multiple daemon
++    // controllers (one per virtual display) never overwrite each other's
++    // input-device association on the shared InputManager.
++    private static final AtomicInteger NEXT_INPUT_PORT_ID = new AtomicInteger();
+ 
+     private final String displayUniqueId;
++    private final String inputPort = "scrcpy:" + Os.getpid() + "-" + NEXT_INPUT_PORT_ID.getAndIncrement();
+ 
+     private final ArrayMap<Integer, FileDescriptor> fds = new ArrayMap<>();
+     private final ByteBuffer buffer = ByteBuffer.allocate(SIZE_OF_UHID_EVENT).order(ByteOrder.nativeOrder());
+ 
+     private final DeviceMessageSender sender;
+     private final MessageQueue queue;
++    private final HandlerThread handlerThread;
+ 
+     public UhidManager(DeviceMessageSender sender, String displayUniqueId) {
+         this.sender = sender;
+         this.displayUniqueId = displayUniqueId;
+         if (Build.VERSION.SDK_INT >= AndroidVersions.API_23_ANDROID_6_0) {
+-            HandlerThread thread = new HandlerThread("UHidManager");
+-            thread.start();
+-            queue = thread.getLooper().getQueue();
++            handlerThread = new HandlerThread("UHidManager");
++            handlerThread.start();
++            queue = handlerThread.getLooper().getQueue();
+         } else {
++            handlerThread = null;
+             queue = null;
+         }
+     }
+@@ -68,7 +74,7 @@ public final class UhidManager {
+                     close(old);
+                 }
+ 
+-                String phys = mustUseInputPort() ? INPUT_PORT : null;
++                String phys = mustUseInputPort() ? inputPort : null;
+                 byte[] req = buildUhidCreate2Req(vendorId, productId, name, reportDesc, phys);
+                 Os.write(fd, req, 0, req.length);
+ 
+@@ -254,11 +260,20 @@ public final class UhidManager {
+             return;
+         }
+ 
+-        for (FileDescriptor fd : fds.values()) {
++        for (int i = 0; i < fds.size(); i++) {
++            FileDescriptor fd = fds.valueAt(i);
++            // Unregister the fd listener BEFORE closing: a listener left on a
++            // closed fd stays registered on the (leaked) HandlerThread queue.
++            unregisterUhidListener(fd);
+             close(fd);
+         }
++        fds.clear();
+ 
+         removeUniqueIdAssociation();
++
++        if (handlerThread != null) {
++            handlerThread.quitSafely();
++        }
+     }
+ 
+     private static void close(FileDescriptor fd) {
+@@ -275,13 +290,13 @@ public final class UhidManager {
+ 
+     private void addUniqueIdAssociation() {
+         if (mustUseInputPort()) {
+-            ServiceManager.getInputManager().addUniqueIdAssociationByPort(INPUT_PORT, displayUniqueId);
++            ServiceManager.getInputManager().addUniqueIdAssociationByPort(inputPort, displayUniqueId);
+         }
+     }
+ 
+     private void removeUniqueIdAssociation() {
+         if (mustUseInputPort()) {
+-            ServiceManager.getInputManager().removeUniqueIdAssociationByPort(INPUT_PORT);
++            ServiceManager.getInputManager().removeUniqueIdAssociationByPort(inputPort);
+         }
+     }
+ }

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..461abbd4
+index 00000000..a16d4dce
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,398 @@
+@@ -0,0 +1,418 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -57,6 +57,14 @@ index 00000000..461abbd4
 +    public static final int ROLE_NEGOTIATION = 3;
 +
 +    private static final int DEVICE_NAME_FIELD_LENGTH = 64;
++
++    /**
++     * Read timeout applied from accept() until the role/session/displayId
++     * handshake completes. Without it a port scan or a peer dying mid-handshake
++     * blocks the single accept thread (or a roleExecutor thread) forever.
++     * Cleared (set back to 0) once a socket enters its data phase.
++     */
++    public static final int HANDSHAKE_SO_TIMEOUT_MS = 10000;
 +
 +    /** Composite key for ROLE_* / ROLE_CONTROL channels. */
 +    public static final class RoleDisplayKey {
@@ -281,6 +289,18 @@ index 00000000..461abbd4
 +            throw new IOException("Invalid socket role: " + role);
 +        }
 +        return role;
++    }
++
++    /**
++     * Leave the handshake phase: drop the handshake read timeout so the socket
++     * can be idle arbitrarily long during normal data exchange.
++     */
++    public static void clearSoTimeout(Socket socket) {
++        try {
++            socket.setSoTimeout(0);
++        } catch (java.net.SocketException e) {
++            Ln.w("Failed to clear soTimeout after handshake: " + e.getMessage());
++        }
 +    }
 +
 +    public static void writeSessionId(Socket socket, int sessionId) throws IOException {

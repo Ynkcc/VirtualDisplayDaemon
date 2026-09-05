@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java b/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java
-index dc5e6be0..e60bdb4d 100644
+index dc5e6be0..c6cf62b6 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java
 @@ -11,7 +11,7 @@ public final class DeviceMessageSender {
@@ -11,3 +11,13 @@ index dc5e6be0..e60bdb4d 100644
  
      public DeviceMessageSender(ControlChannel controlChannel) {
          this.controlChannel = controlChannel;
+@@ -19,7 +19,8 @@ public final class DeviceMessageSender {
+ 
+     public void send(DeviceMessage msg) {
+         if (!queue.offer(msg)) {
+-            Ln.w("Device message dropped: " + msg.getType());
++            Ln.w("Device message dropped (queue full, backlog=" + queue.size() + "): type="
++                    + msg.getType() + " — sender thread likely blocked on socket write");
+         }
+     }
+ 

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..680f631e
+index 00000000..aed8ec6f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,525 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -48,6 +48,8 @@ index 00000000..680f631e
 + * </pre>
 + */
 +public final class ClientSession implements Runnable, SessionConfigurator {
++
++    private static final long STOP_JOIN_TIMEOUT_MS = 5000;
 +
 +    private static final int PHASE_INIT = 0;
 +    private static final int PHASE_CONFIGURED = 1;
@@ -329,6 +331,11 @@ index 00000000..680f631e
 +            });
 +
 +            controllers.put(displayId, controller);
++            // Late-binding fix: if the shared encoder/broadcaster was created
++            // before this control socket arrived (video-first ordering), the
++            // ScreenCapture listener was a no-op proxy. Wire this controller in
++            // now so it receives virtualDisplayId + PositionMapper.
++            broadcasterRegistry.attachListener(displayId, controller);
 +
 +            // Wire any displayId-matching video controller to this controller
 +            // (needed by encoder reset paths that consult the scrcpy Controller).
@@ -348,10 +355,20 @@ index 00000000..680f631e
 +            ControlLoopRunner runner = new ControlLoopRunner(sessionId);
 +            controlLoopRunners.put(displayId, runner);
 +            final Controller finalCtrl = controller;
++            final Socket ctrlSocket = socket;
 +            runner.start(controller, fatalError -> {
 +                Ln.i("Session[" + sessionId + "]: scrcpy controller terminated for displayId="
 +                        + displayId + ", fatal=" + fatalError);
 +                finalCtrl.stop();
++                // Close the control socket so the client observes the disconnect
++                // instead of silently writing touch events into a dead loop.
++                try {
++                    ctrlSocket.close();
++                    Ln.i("Session[" + sessionId + "]: closed control socket after controller termination, displayId=" + displayId);
++                } catch (IOException e) {
++                    Ln.w("Session[" + sessionId + "]: failed to close control socket after controller termination (displayId="
++                            + displayId + "): " + e.getMessage());
++                }
 +            });
 +        } catch (Throwable t) {
 +            Ln.e("Session[" + sessionId + "]: failed to initialize scrcpy controller displayId=" + displayId, t);
@@ -479,9 +496,22 @@ index 00000000..680f631e
 +        for (Controller c : ctrlCopy) {
 +            c.stop();
 +        }
++
++        // Close all sockets BEFORE joining: Thread.interrupt() cannot unblock a
++        // thread stuck in InputStream.read(), so closing the channels first is
++        // the only reliable way for the joins below to return when a peer
++        // disappeared without FIN (half-open connection). Joining first would
++        // leak this thread, the session entry and every session thread forever.
++        connection.shutdown();
++        connection.close();
++
 +        for (ControlLoopRunner r : runnerCopy) {
 +            try {
-+                r.join();
++                r.join(STOP_JOIN_TIMEOUT_MS);
++                if (r.getThread() != null && r.getThread().isAlive()) {
++                    Ln.e("Session[" + sessionId + "]: control loop thread " + r.getThread().getName()
++                            + " still alive after " + STOP_JOIN_TIMEOUT_MS + "ms; leaking daemon thread");
++                }
 +            } catch (InterruptedException ignored) {
 +                Thread.currentThread().interrupt();
 +            }
@@ -494,8 +524,6 @@ index 00000000..680f631e
 +            }
 +        }
 +
-+        connection.shutdown();
-+        connection.close();
 +        if (server != null) {
 +            server.removeSession(sessionId);
 +        }

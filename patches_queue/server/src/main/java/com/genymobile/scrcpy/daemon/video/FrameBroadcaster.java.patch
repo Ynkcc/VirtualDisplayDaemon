@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..0c3296f8
+index 00000000..9c496089
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,333 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -46,6 +46,7 @@ index 00000000..0c3296f8
 +
 +    private SurfaceCapture surfaceCapture;
 +    private SurfaceEncoder surfaceEncoder;
++    private DaemonVideoPipeline.VdListenerProxy vdListenerProxy;
 +
 +    private Thread encodeThread;
 +    private final AtomicBoolean started = new AtomicBoolean(false);
@@ -66,6 +67,10 @@ index 00000000..0c3296f8
 +                displayId, baseArgs, options, broker, controller, b);
 +        b.surfaceCapture = built.getSurfaceCapture();
 +        b.surfaceEncoder = built.getSurfaceEncoder();
++        b.vdListenerProxy = built.getVdListenerProxy();
++        if (b.vdListenerProxy != null && controller != null) {
++            b.vdListenerProxy.setDelegate(controller);
++        }
 +        b.startEncodeThread();
 +        Ln.i("FrameBroadcaster[" + displayId + "]: created (codec=" + options.getVideoCodec()
 +                + ", sendStreamMeta=" + options.getSendStreamMeta()
@@ -155,6 +160,16 @@ index 00000000..0c3296f8
 +    int subscriberCount() {
 +        synchronized (lock) {
 +            return subscribers.size();
++        }
++    }
++
++    /**
++     * Wire a controller into the capture's VirtualDisplayListener. No-op when
++     * the pipeline was built with a concrete controller (control-first ordering).
++     */
++    void setController(Controller controller) {
++        if (vdListenerProxy != null && controller != null) {
++            vdListenerProxy.setDelegate(controller);
 +        }
 +    }
 +

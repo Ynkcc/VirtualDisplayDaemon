@@ -3,7 +3,7 @@
 本目录保存 VirtualDisplay daemon 对 scrcpy 子模块 `server/` 的补丁集合。
 补丁路径前缀（`server/...`、`gradlew`）相对目标仓库根 **`daemon/scrcpy`**。
 
-共 **59 个补丁**：39 个新增文件 + 20 个修改上游文件。
+共 **60 个补丁**：39 个新增文件 + 21 个修改上游文件。
 
 > 应用工具：`./apply.sh`（支持 `list` / `check` / `apply` / `reverse`），见文末。
 
