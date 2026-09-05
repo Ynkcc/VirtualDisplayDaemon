@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..2322ede4
+index 00000000..4146907d
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,224 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -175,6 +175,24 @@ index 00000000..2322ede4
 +        }
 +        if (b != null) {
 +            b.setController(controller);
++        }
++    }
++
++    /**
++     * Tear down the broadcaster for {@code displayId} unconditionally, regardless
++     * of remaining session refs. Used when the underlying virtual display is
++     * destroyed (TYPE_RELEASE_VIRTUAL_DISPLAY): the encoder cannot keep running
++     * from a dead surface. Broadcaster lifetime is encoder-side bookkeeping only;
++     * display refcounts (RefCountedDisplayRegistry users) are untouched.
++     */
++    public void releaseDisplay(int displayId) {
++        FrameBroadcaster toShutdown;
++        synchronized (lock) {
++            toShutdown = broadcasters.remove(displayId);
++        }
++        if (toShutdown != null) {
++            toShutdown.shutdown();
++            Ln.i("FrameBroadcasterRegistry: released broadcaster for displayId=" + displayId + " (display destroyed)");
 +        }
 +    }
 +

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonWire.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonWire.java
 new file mode 100644
-index 00000000..018a930c
+index 00000000..004df9c2
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonWire.java
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,60 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import java.io.DataInputStream;
@@ -20,6 +20,10 @@ index 00000000..018a930c
 + * followed by raw UTF-8 bytes, and {@code int32}s are always big-endian (MSB-first).
 + */
 +public final class DaemonWire {
++
++    // Hard cap on any length-prefixed payload: a corrupted or hostile length
++    // field must not drive a huge allocation (OOM) — reject as protocol error.
++    private static final int MAX_FRAME_BYTES = 1 << 20; // 1 MiB
 +
 +    private DaemonWire() {
 +    }
@@ -40,6 +44,9 @@ index 00000000..018a930c
 +     */
 +    public static String readString(DataInputStream dis) throws IOException {
 +        int len = dis.readInt();
++        if (len < 0 || len > MAX_FRAME_BYTES) {
++            throw new IOException("String frame length out of range: " + len);
++        }
 +        byte[] data = new byte[len];
 +        dis.readFully(data);
 +        return new String(data, StandardCharsets.UTF_8);

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReader.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReader.java
 new file mode 100644
-index 00000000..d74dd0b5
+index 00000000..d33a13d8
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReader.java
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,126 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -111,8 +111,14 @@ index 00000000..d74dd0b5
 +        // entriesCount x (uint8 role, int32 displayId). 0 entries is valid
 +        // (mask-only). No EOF probing / garbage-count heuristics.
 +        int entriesCount = dis.readInt();
-+        if (entriesCount <= 0 || entriesCount > 64) {
-+            // 0 entries valid (explicit mask-only); >64 is clearly garbage.
++        if (entriesCount < 0 || entriesCount > 64) {
++            // Garbage count: fail loudly as a protocol error instead of silently
++            // degrading to mask-only — the client's entry bytes would otherwise
++            // stay in the stream and desynchronize every subsequent message.
++            throw new IOException("CONFIGURE_SESSION invalid entriesCount=" + entriesCount);
++        }
++        if (entriesCount == 0) {
++            // 0 entries valid (explicit mask-only).
 +            return DaemonMessages.createConfigureSession(sequence, optionsKv, rolesMask);
 +        }
 +        List<DaemonControlMessage.RoleEntry> entries = new ArrayList<>(entriesCount);

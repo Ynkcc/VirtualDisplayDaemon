@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..75aaa12c
+index 00000000..d8da178a
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,382 @@
+@@ -0,0 +1,391 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -188,6 +188,12 @@ index 00000000..75aaa12c
 +            // flags 承载"销毁前是否移回主屏"：0=不处理（交给系统），1=前台移回。
 +            boolean moveTasksToDefaultDisplay = dto.getFlags() != 0;
 +            boolean destroyed = registry.releaseVirtualDisplay(dto.getDisplayId(), moveTasksToDefaultDisplay);
++            if (destroyed) {
++                // The display is gone: any shared broadcaster/encoder still
++                // attached to it must be torn down too, otherwise the encoder
++                // keeps rendering from a dead surface (ghost pipeline).
++                broadcasterRegistry.releaseDisplay(dto.getDisplayId());
++            }
 +            sendSuccessResponse(msg, dto.getDisplayId(), destroyed ? "DESTROYED" : "FAILED");
 +        });
 +
@@ -313,6 +319,9 @@ index 00000000..75aaa12c
 +                }
 +                exitCoordinator.requestExit();
 +                close();
++                // Self-terminate so the thread does not accumulate across
++                // repeated EXIT_DAEMON requests on a daemon that failed to die.
++                exitExecutor.shutdown();
 +            });
 +        });
 +

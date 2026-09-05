@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..aed8ec6f
+index 00000000..794ee96e
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,525 @@
+@@ -0,0 +1,529 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -76,6 +76,10 @@ index 00000000..aed8ec6f
 +    private volatile int phase = PHASE_INIT;
 +    private final CountDownLatch configuredLatch = new CountDownLatch(1);
 +    private final AtomicBoolean exited = new AtomicBoolean(false);
++    // Cleanup idempotence guard, separate from `exited`: shutdown() sets exited
++    // first and THEN calls cleanup(), so cleanup() itself must not gate on a
++    // exited(false→true) CAS — that CAS always fails and cleanup would never run.
++    private final AtomicBoolean cleanedUp = new AtomicBoolean(false);
 +
 +    // Per-(displayId) video controllers. Multiple displays → multiple instances.
 +    private final Map<Integer, SessionVideoController> videoControllers = new ConcurrentHashMap<>();
@@ -460,12 +464,12 @@ index 00000000..aed8ec6f
 +    }
 +
 +    private void cleanup() {
-+        if (exited.compareAndSet(false, true)) {
-+            phase = PHASE_CLOSED;
-+            configuredLatch.countDown();
-+        } else {
++        if (!cleanedUp.compareAndSet(false, true)) {
 +            return; // Already cleaned up
 +        }
++        exited.set(true);
++        phase = PHASE_CLOSED;
++        configuredLatch.countDown();
 +
 +        // Step 3: release all VD references held by this session.
 +        registry.releaseSession(sessionId);
