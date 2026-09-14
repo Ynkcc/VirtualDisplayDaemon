@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..b1e462b3
+index 00000000..a792ae6c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,537 @@
+@@ -0,0 +1,544 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -277,8 +277,8 @@ index 00000000..b1e462b3
 +        }
 +
 +        if (session != null) {
-+            actuallyDestroy(displayId, session, true);
-+            return true;
++            // 上抛销毁结果：丢弃它会把失败上报为成功，客户端会以为 VD 已删除而实际残留。
++            return actuallyDestroy(displayId, session, true);
 +        }
 +        return false;
 +    }
@@ -314,17 +314,19 @@ index 00000000..b1e462b3
 +     * {@link #resizeVirtualDisplay} only resizes the display and leaves the
 +     * ImageReader untouched — swapping the reader surface over the encoder's
 +     * input surface would starve the encoder (black screen).
++     *
++     * @return {@code true} if the surface was bound and recorded
 +     */
-+    public void markExternalSurface(int displayId, Surface surface) {
++    public boolean markExternalSurface(int displayId, Surface surface) {
 +        VirtualDisplaySession session;
 +        synchronized (lock) {
 +            session = activeSessions.get(displayId);
 +        }
 +        if (session == null) {
 +            Ln.w("Daemon: cannot mark external surface, display id=" + displayId + " not found");
-+            return;
++            return false;
 +        }
-+        session.setExternalSurface(surface);
++        return session.setExternalSurface(surface);
 +    }
 +
 +    /** 最近一次实际 resize 到的尺寸；无会话时返回 null。 */
@@ -396,6 +398,11 @@ index 00000000..b1e462b3
 +        } catch (Throwable t) {
 +            Ln.w("Daemon: failed to query DPI from DisplayInfo for displayId=" + displayId, t);
 +        }
++        // Keep the requested value (0 means "unspecified" to the display service), but
++        // make the degradation visible: every other resize parameter is validated, so a
++        // silently defaulted density is otherwise indistinguishable from a real one.
++        Ln.w("Daemon: no valid DPI for displayId=" + displayId + " (requested=" + dpi
++                + "), resizing with the unspecified value");
 +        return dpi;
 +    }
 +

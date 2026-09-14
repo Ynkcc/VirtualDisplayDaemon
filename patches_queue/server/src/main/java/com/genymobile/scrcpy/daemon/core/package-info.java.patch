@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/package-info.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/package-info.java
 new file mode 100644
-index 00000000..dd0b080f
+index 00000000..f50724df
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/package-info.java
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,29 @@
 +/**
 + * daemon 模式核心包：会话编排（{@code DaemonServer}/{@code ClientSession}）、
 + * 启动参数（{@code DaemonArgs}/{@code DaemonOptions}）与退出协调。
@@ -27,6 +27,9 @@ index 00000000..dd0b080f
 + *       遍历/清空（cleanup）也必须持该监视器。</li>
 + *   <li>重 I/O（socket 关闭、binder 调用、broadcaster teardown）一律在
 + *       {@code FrameBroadcasterRegistry.lock} 之外执行；锁内只做判定与登记。</li>
++ *   <li><b>失败必须留痕</b>：任何返回 {@code boolean}/可选值的注入、绑定、销毁、
++ *       迁移调用，调用点必须显式判定并记录失败；{@code Ln.d} 只用于预期内的
++ *       关闭与断连，协议错误与生命周期失败一律使用 {@code Ln.w}/{@code Ln.e}。</li>
 + * </ul>
 + */
 +package com.genymobile.scrcpy.daemon.core;

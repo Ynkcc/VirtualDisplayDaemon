@@ -1,8 +1,8 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/device/Device.java b/server/src/main/java/com/genymobile/scrcpy/device/Device.java
-index 615675a1..cb7b8b64 100644
+index 615675a1..da5f5b92 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/device/Device.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/device/Device.java
-@@ -59,16 +59,60 @@ public final class Device {
+@@ -59,16 +59,61 @@ public final class Device {
          return displayId == 0 || Build.VERSION.SDK_INT >= AndroidVersions.API_29_ANDROID_10;
      }
  
@@ -26,7 +26,8 @@ index 615675a1..cb7b8b64 100644
 -        if (displayId != 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
 +        // 允许向除 0 号物理屏幕外的任何非负屏幕（如 daemon 创建的虚拟屏幕）注入输入事件
 +        if (displayId >= 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
-+            trackInjectionResult(false, displayId);
++            // InputManager.setDisplayId 失败时会带堆栈记录；这是本地的反射/事件对象问题，
++            // 不是 system_server 拒绝注入，故不计入楔死窗口（否则会误判并重启 daemon）。
              return false;
          }
  
@@ -50,7 +51,7 @@ index 615675a1..cb7b8b64 100644
 +            if (wedgeFailureCount == 0 || now - wedgeFirstFailureAt > WEDGE_FAILURE_WINDOW_MS) {
 +                wedgeFirstFailureAt = now;
 +                wedgeFailureCount = 1;
-+                Ln.w("Input event injection failed to displayId=" + displayId);
++                Ln.w("Input event rejected by system_server for displayId=" + displayId);
 +                return;
 +            }
 +            wedgeFailureCount++;
@@ -65,3 +66,23 @@ index 615675a1..cb7b8b64 100644
      }
  
      public static boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int displayId, int injectMode) {
+@@ -79,8 +124,17 @@ public final class Device {
+     }
+ 
+     public static boolean pressReleaseKeycode(int keyCode, int displayId, int injectMode) {
+-        return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0, displayId, injectMode)
+-                && injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, displayId, injectMode);
++        if (!injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0, displayId, injectMode)) {
++            Ln.w("Keycode " + keyCode + " DOWN injection failed on displayId=" + displayId
++                    + ", skipping UP (nothing is pressed)");
++            return false;
++        }
++        if (!injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, displayId, injectMode)) {
++            Ln.w("Keycode " + keyCode + " UP injection failed on displayId=" + displayId
++                    + ": the key may remain pressed");
++            return false;
++        }
++        return true;
+     }
+ 
+     public static boolean isScreenOn(int displayId) {

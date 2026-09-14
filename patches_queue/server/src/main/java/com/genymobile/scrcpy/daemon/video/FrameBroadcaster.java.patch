@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..8fd4f3bc
+index 00000000..8b473d86
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,353 @@
+@@ -0,0 +1,366 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -29,6 +29,8 @@ index 00000000..8fd4f3bc
 +import java.util.concurrent.atomic.AtomicBoolean;
 +
 +final class FrameBroadcaster implements FrameSink {
++
++    private static final long ENCODE_THREAD_JOIN_TIMEOUT_MS = 2000;
 +
 +    private final int displayId;
 +    private final String tag;
@@ -194,14 +196,19 @@ index 00000000..8fd4f3bc
 +    }
 +
 +    void kick(int resetReasons) {
-+        if (surfaceCapture != null) {
-+            CaptureControl cc = surfaceCapture.getCaptureControl();
-+            if (cc != null) {
-+                cc.reset(resetReasons);
-+                Ln.i(tag + ": kicked encoder (reasons=0x"
-+                        + Integer.toHexString(resetReasons) + ")");
-+            }
++        if (surfaceCapture == null) {
++            Ln.w(tag + ": kick ignored (reasons=0x" + Integer.toHexString(resetReasons)
++                    + "): no capture to reset, the encoder will not be rebuilt");
++            return;
 +        }
++        CaptureControl cc = surfaceCapture.getCaptureControl();
++        if (cc == null) {
++            Ln.w(tag + ": kick ignored (reasons=0x" + Integer.toHexString(resetReasons)
++                    + "): capture control unavailable, the encoder will not be rebuilt");
++            return;
++        }
++        cc.reset(resetReasons);
++        Ln.i(tag + ": kicked encoder (reasons=0x" + Integer.toHexString(resetReasons) + ")");
 +    }
 +
 +    void shutdown() {
@@ -214,9 +221,15 @@ index 00000000..8fd4f3bc
 +        }
 +        if (encodeThread != null) {
 +            try {
-+                encodeThread.join(2000);
++                encodeThread.join(ENCODE_THREAD_JOIN_TIMEOUT_MS);
 +            } catch (InterruptedException e) {
 +                Thread.currentThread().interrupt();
++            }
++            if (encodeThread.isAlive()) {
++                // The encoder may still be draining frames from the surface released below
++                // (ghost pipeline): surface the leak instead of continuing silently.
++                Ln.e(tag + ": encode thread " + encodeThread.getName() + " still alive after "
++                        + ENCODE_THREAD_JOIN_TIMEOUT_MS + "ms; it may still use the released surface");
 +            }
 +        }
 +        if (surfaceCapture != null) {

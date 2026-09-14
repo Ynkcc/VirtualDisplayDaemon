@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-index 0768181a..0c588ec8 100644
+index 0768181a..222d0229 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 @@ -31,12 +31,35 @@ import java.util.Locale;
@@ -56,7 +56,7 @@ index 0768181a..0c588ec8 100644
  
          Size inputSize;
          if (transform != null) {
-@@ -132,46 +160,128 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -132,46 +160,134 @@ public class ScreenCapture extends SurfaceCapture {
          try {
              virtualDisplay = ServiceManager.getDisplayManager()
                      .createVirtualDisplay("scrcpy", inputSize.getWidth(), inputSize.getHeight(), displayId, surface);
@@ -165,8 +165,7 @@ index 0768181a..0c588ec8 100644
 +        try {
 +            if (virtualDisplay != null) {
 +                virtualDisplay.setSurface(null);
-             }
--            vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
++            }
 +            // Follow the upstream strategy: the mirror virtual display is (re)created
 +            // at the current display logical size (which is rotation-adjusted), so a
 +            // display rotation is baked into the composed output buffer and the video
@@ -183,13 +182,20 @@ index 0768181a..0c588ec8 100644
 +                externalDisplayProvider.setBoundedSize(displayId, displaySize);
 +                Ln.i("ScreenCapture: daemon virtual display resized to "
 +                        + displaySize.getWidth() + "x" + displaySize.getHeight());
-+            }
+             }
+-            vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
 +            // Bind via the provider so the registry records the encoder surface
 +            // as "external". Without this marker, resizeVirtualDisplay replaces
 +            // the encoder's input surface with the fallback ImageReader surface,
 +            // starving the encoder until the next reset (transient black screen;
 +            // permanent if the rebuild fails).
-+            externalDisplayProvider.markExternalSurface(displayId, surface);
++            if (!externalDisplayProvider.markExternalSurface(displayId, surface)) {
++                // Do not mark the display as daemon-managed on a failed bind: the
++                // capture would render into a surface nobody consumes (black screen)
++                // while resize keeps the ImageReader untouched.
++                throw new IOException("Failed to bind the capture surface to the daemon virtual display (displayId="
++                        + displayId + ")");
++            }
 +            virtualDisplay = daemonVD;
 +            isDaemonManaged = true;
 +            // No requestDisplayPower(): daemon-managed VD is private non-mirrored →
@@ -217,7 +223,7 @@ index 0768181a..0c588ec8 100644
      }
  
      @Override
-@@ -180,6 +290,9 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -180,6 +296,9 @@ public class ScreenCapture extends SurfaceCapture {
              glRunner.stopAndRelease();
              glRunner = null;
          }
@@ -227,7 +233,7 @@ index 0768181a..0c588ec8 100644
      }
  
      @Override
-@@ -191,8 +304,13 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -191,8 +310,13 @@ public class ScreenCapture extends SurfaceCapture {
              display = null;
          }
          if (virtualDisplay != null) {

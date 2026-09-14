@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
 new file mode 100644
-index 00000000..6423ff82
+index 00000000..03e9d0f2
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,207 @@
 +package com.genymobile.scrcpy.daemon.compat;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -103,6 +103,7 @@ index 00000000..6423ff82
 +
 +            Object parceledList = getRecentTasksMethod.invoke(atmInstance, 50, 0, -2);
 +            if (parceledList == null) {
++                Ln.w("Daemon: getRecentTasks returned null, task migration skipped for displayId=" + displayId);
 +                return;
 +            }
 +
@@ -111,20 +112,26 @@ index 00000000..6423ff82
 +            }
 +            List<?> list = (List<?>) getListMethod.invoke(parceledList);
 +
-+            if (list != null && displayIdField != null && taskIdField != null) {
-+                for (Object taskInfo : list) {
-+                    int taskDisplayId = displayIdField.getInt(taskInfo);
-+                    int taskId = taskIdField.getInt(taskInfo);
++            if (list == null || displayIdField == null || taskIdField == null) {
++                Ln.w("Daemon: recent task list unavailable (list=" + (list != null)
++                        + ", displayIdField=" + (displayIdField != null)
++                        + ", taskIdField=" + (taskIdField != null)
++                        + "), task migration skipped for displayId=" + displayId);
++                return;
++            }
 +
-+                    if (taskDisplayId == displayId) {
-+                        Ln.i("Daemon: Moving task " + taskId + " back to display 0");
-+                        if (moveRootTaskToDisplayMethod != null) {
-+                            moveRootTaskToDisplayMethod.invoke(atmInstance, taskId, 0);
-+                        } else if (moveStackToDisplayMethod != null) {
-+                            moveStackToDisplayMethod.invoke(atmInstance, taskId, 0);
-+                        } else {
-+                            Ln.w("Daemon: Move task method not available");
-+                        }
++            for (Object taskInfo : list) {
++                int taskDisplayId = displayIdField.getInt(taskInfo);
++                int taskId = taskIdField.getInt(taskInfo);
++
++                if (taskDisplayId == displayId) {
++                    Ln.i("Daemon: Moving task " + taskId + " back to display 0");
++                    if (moveRootTaskToDisplayMethod != null) {
++                        moveRootTaskToDisplayMethod.invoke(atmInstance, taskId, 0);
++                    } else if (moveStackToDisplayMethod != null) {
++                        moveStackToDisplayMethod.invoke(atmInstance, taskId, 0);
++                    } else {
++                        Ln.w("Daemon: Move task method not available");
 +                    }
 +                }
 +            }

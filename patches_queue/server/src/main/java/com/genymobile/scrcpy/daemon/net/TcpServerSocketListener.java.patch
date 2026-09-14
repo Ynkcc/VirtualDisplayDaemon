@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
 new file mode 100644
-index 00000000..b074a865
+index 00000000..b9f1232a
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,163 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -111,15 +111,21 @@ index 00000000..b074a865
 +
 +    public static synchronized void closeServerSocket() {
 +        closed = true;
++        // 关闭失败的监听 socket 仍占用端口：保留引用并留痕，否则下次 bind 失败时
++        // 无法归因（列表已被清空，端口无主）。
++        List<ServerSocket> failedToClose = new ArrayList<>();
 +        for (ServerSocket ss : serverSockets) {
 +            try {
 +                ss.close();
 +                Ln.i("Daemon: ServerSocket closed: " + ss.getLocalSocketAddress());
 +            } catch (IOException e) {
-+                Ln.w("Daemon: failed to close ServerSocket", e);
++                failedToClose.add(ss);
++                Ln.e("Daemon: failed to close ServerSocket " + ss.getLocalSocketAddress()
++                        + ", the port may still be in use", e);
 +            }
 +        }
 +        serverSockets.clear();
++        serverSockets.addAll(failedToClose);
 +        for (Thread t : acceptThreads) {
 +            t.interrupt();
 +        }
@@ -130,7 +136,9 @@ index 00000000..b074a865
 +        for (Socket s : remaining) {
 +            try {
 +                s.close();
-+            } catch (IOException ignored) {}
++            } catch (IOException e) {
++                Ln.d("Daemon: failed to close a pending accepted socket: " + e.getMessage());
++            }
 +        }
 +    }
 +

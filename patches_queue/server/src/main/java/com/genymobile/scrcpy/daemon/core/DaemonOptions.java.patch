@@ -1,16 +1,18 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonOptions.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonOptions.java
 new file mode 100644
-index 00000000..87da5794
+index 00000000..388916ee
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonOptions.java
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,81 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.util.Ln;
 +
 +public class DaemonOptions {
 +
-+    private int port = -1;
++    public static final int DEFAULT_PORT = 27183;
++
++    private int port = DEFAULT_PORT;
 +    private boolean daemonMode = false;
 +    private String bindAddress = "127.0.0.1";
 +    private String secretToken = null;
@@ -42,10 +44,12 @@ index 00000000..87da5794
 +                        if (port >= 1024 && port <= 65535) {
 +                            opts.port = port;
 +                        } else {
-+                            Ln.w("daemon_port out of range [1024,65535], ignored: " + value);
++                            Ln.w("daemon_port out of range [1024,65535], using the default port "
++                                    + DEFAULT_PORT + ": " + value);
 +                        }
 +                    } catch (NumberFormatException e) {
-+                        Ln.w("daemon_port not a valid integer, ignored: " + value);
++                        Ln.w("daemon_port is not a valid integer, using the default port "
++                                + DEFAULT_PORT + ": " + value);
 +                    }
 +                    break;
 +                case "daemon_bind_address":

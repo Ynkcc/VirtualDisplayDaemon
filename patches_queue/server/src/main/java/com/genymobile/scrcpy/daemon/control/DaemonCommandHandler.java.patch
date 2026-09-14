@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..a13e9f19
+index 00000000..f4c33cf0
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,346 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -110,8 +110,13 @@ index 00000000..a13e9f19
 +    }
 +
 +    public void close() {
-+        interactiveExecutor.shutdownNow();
-+        lifecycleExecutor.shutdownNow();
++        // shutdownNow() drops queued commands: their client never receives any response
++        // (it times out), so report how many were lost instead of silently discarding them.
++        int dropped = interactiveExecutor.shutdownNow().size() + lifecycleExecutor.shutdownNow().size();
++        if (dropped > 0) {
++            Ln.w(tag + ": closing command handler with " + dropped
++                    + " queued command(s) dropped; their clients will not receive a response");
++        }
 +    }
 +
 +    private void register(int type, ExecutionPolicy policy, CommandHandler handler) {

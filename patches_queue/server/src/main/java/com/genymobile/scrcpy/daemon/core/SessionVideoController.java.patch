@@ -1,14 +1,15 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionVideoController.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionVideoController.java
 new file mode 100644
-index 00000000..e5c05f39
+index 00000000..f2ef93b4
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionVideoController.java
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,171 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
 +import com.genymobile.scrcpy.daemon.display.VirtualDisplayRegistry;
++import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +import com.genymobile.scrcpy.daemon.video.FrameBroadcasterRegistry;
 +import com.genymobile.scrcpy.daemon.video.VideoSubscriber;
 +import com.genymobile.scrcpy.util.Ln;
@@ -95,7 +96,11 @@ index 00000000..e5c05f39
 +                    Ln.w(tag + ": auto-start failed for displayId=" + displayId);
 +                }
 +            } catch (IOException e) {
-+                Ln.e(tag + ": failed to bind video socket displayId=" + displayId, e);
++                // 绑定失败后 socket 不能被任何人使用：不闭合会泄漏 fd，且绑定状态与
++                // socket 生命周期不一致（无重绑机会）。
++                Ln.e(tag + ": failed to bind video socket displayId=" + displayId
++                        + ", closing the socket", e);
++                TcpDesktopConnection.closeQuietly(socket);
 +            }
 +        }
 +    }

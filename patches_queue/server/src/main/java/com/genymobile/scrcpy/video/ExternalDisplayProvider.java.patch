@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java b/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java
 new file mode 100644
-index 00000000..7d50d0b4
+index 00000000..8a97e719
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,39 @@
 +package com.genymobile.scrcpy.video;
 +
 +import android.hardware.display.VirtualDisplay;
@@ -20,9 +20,14 @@ index 00000000..7d50d0b4
 +     * input surface — to the virtual display and record it in the session. While an
 +     * external surface is bound, resize must keep the ImageReader untouched (the
 +     * reader is only a fallback consumer).
++     *
++     * @return {@code true} if the surface was bound and recorded, {@code false} if the
++     *         binding failed (no surface is recorded in that case, so callers must not
++     *         treat the display as externally driven)
 +     */
-+    default void markExternalSurface(int displayId, Surface surface) {
++    default boolean markExternalSurface(int displayId, Surface surface) {
 +        // Default no-op for providers that do not track surfaces.
++        return true;
 +    }
 +
 +    /**

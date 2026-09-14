@@ -1,17 +1,18 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java b/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
-index 1be04c3a..b7dbc6ed 100644
+index 1be04c3a..ae067cbb 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/wrappers/DisplayManager.java
-@@ -19,6 +19,8 @@ import java.lang.reflect.Constructor;
+@@ -19,6 +19,9 @@ import java.lang.reflect.Constructor;
  import java.lang.reflect.Field;
  import java.lang.reflect.Method;
  import java.lang.reflect.Proxy;
 +import java.util.Map;
++import java.util.Set;
 +import java.util.concurrent.ConcurrentHashMap;
  import java.util.regex.Matcher;
  import java.util.regex.Pattern;
  
-@@ -28,6 +30,10 @@ public final class DisplayManager {
+@@ -28,6 +31,14 @@ public final class DisplayManager {
      // android.hardware.display.DisplayManager.EVENT_FLAG_DISPLAY_CHANGED
      public static final long EVENT_FLAG_DISPLAY_CHANGED = 1L << 2;
  
@@ -19,10 +20,14 @@ index 1be04c3a..b7dbc6ed 100644
 +    // re-running getDeclaredField() on every display-info read (hot path).
 +    private static final Map<String, Field> FIELD_CACHE = new ConcurrentHashMap<>();
 +
++    // 无法读取的字段只报告一次：getDisplayInfo() 是热路径（每次 displays 查询都会走到），
++    // 重复告警会刷屏并掩盖真正的原因。
++    private static final Set<String> REPORTED_FIELD_ISSUES = ConcurrentHashMap.newKeySet();
++
      public interface DisplayListener {
          /**
           * Called whenever the properties of a logical {@link android.view.Display},
-@@ -46,9 +52,16 @@ public final class DisplayManager {
+@@ -46,9 +57,16 @@ public final class DisplayManager {
      }
  
      private final Object manager; // instance of hidden class android.hardware.display.DisplayManagerGlobal
@@ -42,7 +47,18 @@ index 1be04c3a..b7dbc6ed 100644
  
      static DisplayManager create() {
          try {
-@@ -146,12 +159,104 @@ public final class DisplayManager {
+@@ -109,7 +127,9 @@ public final class DisplayManager {
+                 Field filed = Display.class.getDeclaredField(flagString);
+                 flags |= filed.getInt(null);
+             } catch (ReflectiveOperationException e) {
+-                // Silently ignore, some flags reported by "dumpsys display" are @TestApi
++                // 部分 FLAG_* 是 @TestApi 或新版本常量，本版本必然是缺失的；但不能完全静默：
++                // flags 不完整会让 FLAG_SUPPORTS_PROTECTED_BUFFERS 之类的判定出错。
++                reportFieldIssue("Display:" + flagString, "unknown flag for this Android version");
+             }
+         }
+         return flags;
+@@ -146,12 +166,114 @@ public final class DisplayManager {
                  // This field might not exist: <https://github.com/Genymobile/scrcpy/issues/6461>
                  uniqueId = null;
              }
@@ -96,6 +112,12 @@ index 1be04c3a..b7dbc6ed 100644
 +        }
 +    }
 +
++    private static void reportFieldIssue(String key, String reason) {
++        if (REPORTED_FIELD_ISSUES.add(key)) {
++            Ln.w("DisplayManager: field unavailable - " + key + " (" + reason + ")");
++        }
++    }
++
 +    private static Field cachedField(Class<?> cls, String fieldName) {
 +        String key = cls.getName() + ":" + fieldName;
 +        Field f = FIELD_CACHE.get(key);
@@ -103,6 +125,7 @@ index 1be04c3a..b7dbc6ed 100644
 +            try {
 +                f = cls.getDeclaredField(fieldName);
 +            } catch (NoSuchFieldException e) {
++                reportFieldIssue(key, "not present on this Android version");
 +                return null;
 +            }
 +            FIELD_CACHE.put(key, f);
@@ -118,6 +141,7 @@ index 1be04c3a..b7dbc6ed 100644
 +        try {
 +            return (String) f.get(target);
 +        } catch (ReflectiveOperationException e) {
++            reportFieldIssue(cls.getName() + ":" + fieldName, e.getClass().getSimpleName() + ": " + e.getMessage());
 +            return null;
 +        }
 +    }
@@ -125,11 +149,13 @@ index 1be04c3a..b7dbc6ed 100644
 +    private static int getIntField(Object target, Class<?> cls, String fieldName) {
 +        Field f = cachedField(cls, fieldName);
 +        if (f == null) {
++            // 0 是"读不到"的退化值：调用方必须把它当作未知归属，而不是真实的 uid 0。
 +            return 0;
 +        }
 +        try {
 +            return f.getInt(target);
 +        } catch (ReflectiveOperationException e) {
++            reportFieldIssue(cls.getName() + ":" + fieldName, e.getClass().getSimpleName() + ": " + e.getMessage());
 +            return 0;
 +        }
 +    }
@@ -148,7 +174,7 @@ index 1be04c3a..b7dbc6ed 100644
      public int[] getDisplayIds() {
          try {
              return (int[]) manager.getClass().getMethod("getDisplayIds").invoke(manager);
-@@ -169,29 +274,107 @@ public final class DisplayManager {
+@@ -169,29 +291,107 @@ public final class DisplayManager {
      }
  
      public VirtualDisplay createVirtualDisplay(String name, int width, int height, int displayIdToMirror, Surface surface) throws Exception {

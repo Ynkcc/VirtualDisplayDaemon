@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
-index 55d6e11b..b63ff112 100644
+index 55d6e11b..31173e8d 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 @@ -87,6 +87,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
@@ -15,7 +15,7 @@ index 55d6e11b..b63ff112 100644
      private final boolean supportsInputEvents;
      private final ControlChannel controlChannel;
      private final CleanUp cleanUp;
-@@ -103,6 +109,11 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -103,6 +109,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      private final Object displayDataAvailable = new Object(); // condition variable
  
      private long lastTouchDown;
@@ -24,10 +24,11 @@ index 55d6e11b..b63ff112 100644
 +    // (client keeps its old size, server rebuilt with another). Spamming WARN
 +    // per event would flood logcat, so gate to once per second.
 +    private long lastSizeMismatchLog;
++    private long lastInjectionFailureLog;
      private final PointersState pointersState = new PointersState();
      private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
      private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
-@@ -110,9 +121,23 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -110,9 +122,23 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      private boolean keepDisplayPowerOff;
  
      // Used for resetting video encoding on RESET_VIDEO message or for sending camera controls
@@ -52,7 +53,7 @@ index 55d6e11b..b63ff112 100644
          this.camera = options.getVideoSource() == VideoSource.CAMERA;
          this.controlChannel = controlChannel;
          this.cleanUp = cleanUp;
-@@ -120,6 +145,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -120,6 +146,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          if (this.camera) {
              // Unused for camera
              this.displayId = Device.DISPLAY_ID_NONE;
@@ -60,7 +61,7 @@ index 55d6e11b..b63ff112 100644
              this.supportsInputEvents = false;
              this.sender = null;
              this.clipboardAutosync = false;
-@@ -128,7 +154,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -128,7 +155,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              return;
          }
  
@@ -70,7 +71,7 @@ index 55d6e11b..b63ff112 100644
  
          this.clipboardAutosync = options.getClipboardAutosync();
          this.powerOn = options.getPowerOn();
-@@ -136,7 +163,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -136,7 +164,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          initPointers();
          sender = new DeviceMessageSender(controlChannel);
  
@@ -79,7 +80,7 @@ index 55d6e11b..b63ff112 100644
          if (!supportsInputEvents) {
              Ln.w("Input events are not supported for secondary displays before Android 10");
          }
-@@ -165,6 +192,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -165,6 +193,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
  
      @Override
      public void onNewVirtualDisplay(int virtualDisplayId, PositionMapper positionMapper) {
@@ -89,7 +90,49 @@ index 55d6e11b..b63ff112 100644
          DisplayData data = new DisplayData(virtualDisplayId, positionMapper);
          DisplayData old = this.displayData.getAndSet(data);
          if (old == null) {
-@@ -437,6 +467,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -344,30 +375,25 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+         if (!camera) {
+             switch (type) {
+                 case ControlMessage.TYPE_INJECT_KEYCODE:
+-                    if (supportsInputEvents) {
+-                        injectKeycode(msg.getAction(), msg.getKeycode(), msg.getRepeat(), msg.getMetaState());
+-                    }
++                    injectionResult("INJECT_KEYCODE",
++                            supportsInputEvents && injectKeycode(msg.getAction(), msg.getKeycode(), msg.getRepeat(), msg.getMetaState()));
+                     return true;
+                 case ControlMessage.TYPE_INJECT_TEXT:
+-                    if (supportsInputEvents) {
+-                        injectText(msg.getText());
+-                    }
++                    String text = msg.getText();
++                    injectionResult("INJECT_TEXT",
++                            supportsInputEvents && (text.isEmpty() || injectText(text) > 0));
+                     return true;
+                 case ControlMessage.TYPE_INJECT_TOUCH_EVENT:
+-                    if (supportsInputEvents) {
+-                        injectTouch(
+-                                msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
+-                    }
++                    injectionResult("INJECT_TOUCH_EVENT", supportsInputEvents && injectTouch(
++                            msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons()));
+                     return true;
+                 case ControlMessage.TYPE_INJECT_SCROLL_EVENT:
+-                    if (supportsInputEvents) {
+-                        injectScroll(msg.getPosition(), msg.getHScroll(), msg.getVScroll(), msg.getButtons());
+-                    }
++                    injectionResult("INJECT_SCROLL_EVENT",
++                            supportsInputEvents && injectScroll(msg.getPosition(), msg.getHScroll(), msg.getVScroll(), msg.getButtons()));
+                     return true;
+                 case ControlMessage.TYPE_BACK_OR_SCREEN_ON:
+-                    if (supportsInputEvents) {
+-                        pressBackOrTurnScreenOn(msg.getAction());
+-                    }
++                    injectionResult("BACK_OR_SCREEN_ON",
++                            supportsInputEvents && pressBackOrTurnScreenOn(msg.getAction()));
+                     return true;
+                 case ControlMessage.TYPE_EXPAND_NOTIFICATION_PANEL:
+                     Device.expandNotificationPanel();
+@@ -437,6 +463,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              }
          }
  
@@ -100,7 +143,56 @@ index 55d6e11b..b63ff112 100644
          throw new AssertionError("Unexpected message type: " + type);
      }
  
-@@ -492,10 +526,14 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -457,16 +487,43 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+         }
+ 
+         int actionDisplayId = getActionDisplayId();
+-        if (actionDisplayId != Device.DISPLAY_ID_NONE) {
+-            for (KeyEvent event : events) {
+-                if (!Device.injectEvent(event, actionDisplayId, Device.INJECT_MODE_ASYNC)) {
+-                    return false;
+-                }
++        if (actionDisplayId == Device.DISPLAY_ID_NONE) {
++            // No display to inject into: report failure, otherwise injectText() would count
++            // characters that were never injected as successful.
++            return false;
++        }
++        for (KeyEvent event : events) {
++            if (!Device.injectEvent(event, actionDisplayId, Device.INJECT_MODE_ASYNC)) {
++                return false;
+             }
+         }
+         return true;
+     }
+ 
++    /**
++     * Report the outcome of an injection attempt. Injection failures make the client
++     * observe "command consumed but nothing happened", so they must be attributable;
++     * high-frequency events (touch/scroll) are rate-limited to avoid flooding the log.
++     */
++    private void injectionResult(String type, boolean ok) {
++        if (ok) {
++            return;
++        }
++        if (!supportsInputEvents) {
++            logInjectionFailure(type + ": input events are not supported for displayId=" + displayId);
++            return;
++        }
++        logInjectionFailure(type);
++    }
++
++    private void logInjectionFailure(String what) {
++        long now = SystemClock.uptimeMillis();
++        if (now - lastInjectionFailureLog > 1000) {
++            lastInjectionFailureLog = now;
++            Ln.w("Input injection failed: " + what + " (see the device log for the system_server reason)");
++        }
++    }
++
+     private int injectText(String text) {
+         int successCount = 0;
+         for (char c : text.toCharArray()) {
+@@ -492,10 +549,14 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          if (displayData != null) {
              point = displayData.positionMapper.map(position);
              if (point == null) {
@@ -119,7 +211,7 @@ index 55d6e11b..b63ff112 100644
                  }
                  return null;
              }
-@@ -506,7 +544,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -506,7 +567,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              targetDisplayId = displayId;
          }
  
@@ -128,7 +220,31 @@ index 55d6e11b..b63ff112 100644
      }
  
      private boolean injectTouch(int action, long pointerId, Position position, float pressure, int actionButton, int buttons) {
-@@ -748,18 +786,35 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -651,7 +712,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+     private static void scheduleDisplayPowerOff(int displayId) {
+         EXECUTOR.schedule(() -> {
+             Ln.i("Forcing display off");
+-            Device.setDisplayPower(displayId, false);
++            if (!Device.setDisplayPower(displayId, false)) {
++                Ln.w("Could not force display off for displayId=" + displayId);
++            }
+         }, 200, TimeUnit.MILLISECONDS);
+     }
+ 
+@@ -689,7 +752,11 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+         if (copyKey != ControlMessage.COPY_KEY_NONE && Build.VERSION.SDK_INT >= AndroidVersions.API_24_ANDROID_7_0 && supportsInputEvents) {
+             int key = copyKey == ControlMessage.COPY_KEY_COPY ? KeyEvent.KEYCODE_COPY : KeyEvent.KEYCODE_CUT;
+             // Wait until the event is finished, to ensure that the clipboard text we read just after is the correct one
+-            pressReleaseKeycode(key, Device.INJECT_MODE_WAIT_FOR_FINISH);
++            if (!pressReleaseKeycode(key, Device.INJECT_MODE_WAIT_FOR_FINISH)) {
++                Ln.w("Could not inject the "
++                        + (copyKey == ControlMessage.COPY_KEY_COPY ? "COPY" : "CUT")
++                        + " keycode: the clipboard content read back may be stale");
++            }
+         }
+ 
+         // If clipboard autosync is enabled, then the device clipboard is synchronized to the computer clipboard whenever it changes, in
+@@ -748,18 +815,35 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private int getActionDisplayId() {
@@ -170,7 +286,17 @@ index 55d6e11b..b63ff112 100644
      }
  
      private void startAppAsync(String name) {
-@@ -877,8 +932,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -866,6 +950,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+                 boolean mustRestoreOnExit = !on;
+                 cleanUp.setRestoreDisplayPower(mustRestoreOnExit);
+             }
++        } else {
++            Ln.w("Could not turn display " + (on ? "on" : "off") + " for displayId=" + targetDisplayId
++                    + ": the command is ignored");
+         }
+     }
+ 
+@@ -877,8 +964,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private void resizeDisplay(int width, int height) {

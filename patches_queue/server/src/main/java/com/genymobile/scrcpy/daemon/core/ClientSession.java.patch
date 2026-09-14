@@ -1,14 +1,15 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
 new file mode 100644
-index 00000000..e2170b91
+index 00000000..e834a5ed
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
-@@ -0,0 +1,480 @@
+@@ -0,0 +1,492 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.ControlChannel;
 +import com.genymobile.scrcpy.control.ControlMessage;
++import com.genymobile.scrcpy.control.ControlProtocolException;
 +import com.genymobile.scrcpy.control.Controller;
 +import com.genymobile.scrcpy.control.DeviceMessageSender;
 +import com.genymobile.scrcpy.daemon.control.DaemonCommandHandler;
@@ -115,7 +116,11 @@ index 00000000..e2170b91
 +            connection.sendDeviceMeta(Device.getDeviceName());
 +            Ln.i(tag + ": device meta sent via negotiation channel");
 +        } catch (IOException e) {
-+            Ln.w(tag + ": failed to send device meta: " + e.getMessage());
++            // 设备名是握手的第一个字段：没发出去后续所有客户端读取都会错位，
++            // 继续协商只会让对端解析出垃圾数据。
++            Ln.e(tag + ": failed to send device meta, aborting session: " + e.getMessage(), e);
++            cleanup();
++            return;
 +        }
 +
 +        DeviceMessageSender negotiationSender = null;
@@ -130,11 +135,18 @@ index 00000000..e2170b91
 +                ControlMessage msg;
 +                try {
 +                    msg = connection.getNegotiationChannel().recv();
++                } catch (ControlProtocolException e) {
++                    // 协议错误不是正常关闭：必须留痕，否则客户端发未知/错版本消息时
++                    // 服务端只表现为"连接没了"。
++                    Ln.e(tag + ": negotiation protocol error: " + e.getMessage(), e);
++                    break;
 +                } catch (IOException e) {
 +                    Ln.d(tag + ": negotiation socket closed or read error: " + e.getMessage());
 +                    break;
 +                }
 +                if (msg == null) {
++                    // 读端返回 null 时无法继续协商，但不能静默结束会话。
++                    Ln.w(tag + ": negotiation reader returned no message, closing the session");
 +                    break;
 +                }
 +                if (!negotiationCommandHandler.handle(msg)) {

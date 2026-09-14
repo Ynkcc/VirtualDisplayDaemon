@@ -1,11 +1,12 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/DisplaySurfaceBroker.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/DisplaySurfaceBroker.java
 new file mode 100644
-index 00000000..a4a806ab
+index 00000000..dd9aaeeb
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/DisplaySurfaceBroker.java
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,50 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
++import com.genymobile.scrcpy.util.Ln;
 +import com.genymobile.scrcpy.video.ExternalDisplayProvider;
 +import android.hardware.display.VirtualDisplay;
 +import android.view.Surface;
@@ -28,14 +29,19 @@ index 00000000..a4a806ab
 +    @Override
 +    public void restore(int displayId) {
 +        VirtualDisplaySession session = registry.getSession(displayId);
-+        if (session != null) {
-+            session.restoreFallbackSurface();
++        if (session == null) {
++            // 兜底 surface 未恢复：该 display 的 next resize 会以为外部 surface 仍在，
++            // 画面可能保持黑屏而无任何线索。
++            Ln.w("Daemon: cannot restore fallback surface, display id=" + displayId
++                    + " not found (resize may keep a stale surface)");
++            return;
 +        }
++        session.restoreFallbackSurface();
 +    }
 +
 +    @Override
-+    public void markExternalSurface(int displayId, Surface surface) {
-+        registry.markExternalSurface(displayId, surface);
++    public boolean markExternalSurface(int displayId, Surface surface) {
++        return registry.markExternalSurface(displayId, surface);
 +    }
 +
 +    @Override

@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java
 new file mode 100644
-index 00000000..e7f42db0
+index 00000000..159b8fb1
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,164 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -85,21 +85,31 @@ index 00000000..e7f42db0
 +        this.boundedSize = size;
 +    }
 +
-+    public synchronized void setExternalSurface(Surface surface) {
-+        this.externalSurface = surface;
++    public synchronized boolean setExternalSurface(Surface surface) {
++        Surface previous = externalSurface;
++        Surface target;
++        if (surface != null) {
++            target = surface;
++        } else if (imageReader != null) {
++            target = imageReader.getSurface();
++        } else {
++            target = null;
++        }
 +        try {
 +            if (virtualDisplay != null) {
-+                if (surface != null) {
-+                    virtualDisplay.setSurface(surface);
-+                } else if (imageReader != null) {
-+                    virtualDisplay.setSurface(imageReader.getSurface());
-+                } else {
-+                    virtualDisplay.setSurface(null);
-+                }
++                virtualDisplay.setSurface(target);
 +            }
 +        } catch (Exception e) {
-+            Ln.e("Daemon: failed to set surface for displayId=" + displayId, e);
++            // 绑定失败必须回滚已记录的状态：externalSurface 非 null 会让 resize 永久走
++            // "external surface, reader untouched" 分支（不换 reader）而不重新绑定，
++            // 结果是无日志的黑屏残留。
++            this.externalSurface = previous;
++            Ln.e("Daemon: failed to set surface for displayId=" + displayId
++                    + " (externalSurface rolled back to " + (previous != null ? "bound" : "unbound") + ")", e);
++            return false;
 +        }
++        this.externalSurface = surface;
++        return true;
 +    }
 +
 +    public synchronized void restoreFallbackSurface() {

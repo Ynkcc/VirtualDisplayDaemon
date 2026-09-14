@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..43ac1981
+index 00000000..70486654
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,354 @@
+@@ -0,0 +1,360 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -170,6 +170,12 @@ index 00000000..43ac1981
 +    private void bindFdSocket(int role, int displayId, Socket socket) throws IOException {
 +        RoleDisplayKey key = new RoleDisplayKey(role, displayId);
 +        FileDescriptor fd = getFileDescriptor(socket);
++        if (fd == null) {
++            // 无 fd 的通道无法用于串流（Streamer 需要 fd 才能直写 socket）：与其存入一个
++            // hasVideoChannel() 会说真话但 getVideoFd() 为 null 的坏通道，不如快速失败，
++            // 由调用方闭合 socket 并上报。
++            throw new IOException("Could not get the file descriptor of the " + key + " socket");
++        }
 +        synchronized (channels) {
 +            closeQuietly(removeChannelLocked(key));
 +            channels.put(key, new Channel(socket, fd, null));

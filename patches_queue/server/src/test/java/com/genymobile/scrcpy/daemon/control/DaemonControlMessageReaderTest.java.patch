@@ -1,12 +1,13 @@
 diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReaderTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReaderTest.java
 new file mode 100644
-index 00000000..33a7d980
+index 00000000..f0a420d9
 --- /dev/null
 +++ b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReaderTest.java
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,222 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
++import com.genymobile.scrcpy.control.ControlProtocolException;
 +import com.genymobile.scrcpy.daemon.net.DaemonWire;
 +import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +
@@ -213,7 +214,15 @@ index 00000000..33a7d980
 +    }
 +
 +    @Test
-+    public void testUnknownTypeReturnsNull() throws Exception {
-+        Assert.assertNull(read(999, new byte[0]));
++    public void testUnknownTypeIsRejected() throws Exception {
++        // An unknown type must not be reported as "no message" (null): the caller could not
++        // distinguish it from a closed stream, so the session would be dropped silently.
++        try {
++            ControlMessage msg = read(999, new byte[0]);
++            Assert.fail("unknown type must be rejected, got " + msg);
++        } catch (ControlProtocolException e) {
++            Assert.assertTrue("message must carry the offending type: " + e.getMessage(),
++                    e.getMessage().contains("999"));
++        }
 +    }
 +}
