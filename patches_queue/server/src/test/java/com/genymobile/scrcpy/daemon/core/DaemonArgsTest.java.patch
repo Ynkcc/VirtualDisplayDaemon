@@ -1,10 +1,10 @@
-diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/DaemonArgsTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/DaemonArgsTest.java
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/core/DaemonArgsTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/core/DaemonArgsTest.java
 new file mode 100644
-index 00000000..4fad984e
+index 00000000..90e162ef
 --- /dev/null
-+++ b/server/src/test/java/com/genymobile/scrcpy/daemon/DaemonArgsTest.java
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/core/DaemonArgsTest.java
 @@ -0,0 +1,103 @@
-+package com.genymobile.scrcpy.daemon;
++package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.util.Ln;
 +

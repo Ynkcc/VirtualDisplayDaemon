@@ -30,11 +30,12 @@
 | `video/FrameSink.java.patch` | `server/.../video/FrameSink.java` | `Streamer`/`SurfaceEncoder`（修改）、`FrameBroadcaster` |
 
 ### 1.3 daemon（35）
-`daemon/` 包为 daemon 模式的核心，内部有包级依赖，但均为新增、互相可解析：
+`daemon/` 包为 daemon 模式的核心。包布局：`core`（会话/服务/参数编排）、
+`control`（daemon 协议与命令分发）、`display`（VD 生命周期）、`net`（socket/握手）、
+`video`（帧广播管线）、`compat`（系统服务反射兼容层）：
 
 | 补丁 | 目标文件 |
 |---|---|
-| `daemon/ClientSession.java.patch` | `daemon/ClientSession.java` |
 | `daemon/compat/DisplayCompat.java.patch` | `daemon/compat/DisplayCompat.java` |
 | `daemon/control/CommandHandler.java.patch` | `daemon/control/CommandHandler.java` |
 | `daemon/control/DaemonCommandHandler.java.patch` | `daemon/control/DaemonCommandHandler.java` |
@@ -45,12 +46,14 @@
 | `daemon/control/DaemonMessages.java.patch` | `daemon/control/DaemonMessages.java` |
 | `daemon/control/ExecutionPolicy.java.patch` | `daemon/control/ExecutionPolicy.java` |
 | `daemon/control/ExtensionCarrier.java.patch` | `daemon/control/ExtensionCarrier.java` |
-| `daemon/ControlLoopRunner.java.patch` | `daemon/ControlLoopRunner.java` |
-| `daemon/DaemonArgs.java.patch` | `daemon/DaemonArgs.java` |
-| `daemon/DaemonExitCoordinator.java.patch` | `daemon/DaemonExitCoordinator.java` |
-| `daemon/DaemonOptions.java.patch` | `daemon/DaemonOptions.java` |
-| `daemon/DaemonServer.java.patch` | `daemon/DaemonServer.java` |
-| `daemon/DaemonVideoPipeline.java.patch` | `daemon/DaemonVideoPipeline.java` |
+| `daemon/core/ClientSession.java.patch` | `daemon/core/ClientSession.java` |
+| `daemon/core/ControlLoopRunner.java.patch` | `daemon/core/ControlLoopRunner.java` |
+| `daemon/core/DaemonArgs.java.patch` | `daemon/core/DaemonArgs.java` |
+| `daemon/core/DaemonExitCoordinator.java.patch` | `daemon/core/DaemonExitCoordinator.java` |
+| `daemon/core/DaemonOptions.java.patch` | `daemon/core/DaemonOptions.java` |
+| `daemon/core/DaemonServer.java.patch` | `daemon/core/DaemonServer.java` |
+| `daemon/core/SessionConfigurator.java.patch` | `daemon/core/SessionConfigurator.java` |
+| `daemon/core/SessionVideoController.java.patch` | `daemon/core/SessionVideoController.java` |
 | `daemon/display/ActivityLauncher.java.patch` | `daemon/display/ActivityLauncher.java` |
 | `daemon/display/AppLister.java.patch` | `daemon/display/AppLister.java` |
 | `daemon/display/DisplaySurfaceBroker.java.patch` | `daemon/display/DisplaySurfaceBroker.java` |
@@ -62,9 +65,8 @@
 | `daemon/net/InstanceMutex.java.patch` | `daemon/net/InstanceMutex.java` |
 | `daemon/net/TcpDesktopConnection.java.patch` | `daemon/net/TcpDesktopConnection.java` |
 | `daemon/net/TcpServerSocketListener.java.patch` | `daemon/net/TcpServerSocketListener.java` |
-| `daemon/SessionConfigurator.java.patch` | `daemon/SessionConfigurator.java` |
-| `daemon/SessionVideoController.java.patch` | `daemon/SessionVideoController.java` |
 | `daemon/video/ByteArrayPool.java.patch` | `daemon/video/ByteArrayPool.java` |
+| `daemon/video/DaemonVideoPipeline.java.patch` | `daemon/video/DaemonVideoPipeline.java` |
 | `daemon/video/FrameBroadcaster.java.patch` | `daemon/video/FrameBroadcaster.java` |
 | `daemon/video/FrameBroadcasterRegistry.java.patch` | `daemon/video/FrameBroadcasterRegistry.java` |
 | `daemon/video/Frame.java.patch` | `daemon/video/Frame.java` |
@@ -77,7 +79,7 @@
 
 | 补丁 | 覆盖内容 |
 |---|---|
-| `daemon/DaemonArgsTest.java.patch` | `strip` / `changeDisplayId` / `mergeOptions`（含 blocked key 过滤与畸形行处理） |
+| `daemon/core/DaemonArgsTest.java.patch` | `strip` / `changeDisplayId` / `mergeOptions`（含 blocked key 过滤与畸形行处理） |
 | `daemon/control/DaemonControlMessageReaderTest.java.patch` | daemon 请求载荷解析（含 `CONFIGURE_SESSION` entriesCount 越界拒绝） |
 | `daemon/control/DaemonDeviceMessageWriterTest.java.patch` | daemon 响应序列化（generic / displays / infos / apps，经 `DeviceMessageWriter` 全路径） |
 | `daemon/control/DeviceMessageSenderTest.java.patch` | `awaitDrained` 排空等待、超时语义、队列满时 pending 计数不漂移 |

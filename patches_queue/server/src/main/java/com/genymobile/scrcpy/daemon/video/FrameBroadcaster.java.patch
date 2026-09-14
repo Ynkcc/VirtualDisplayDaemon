@@ -1,14 +1,13 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..5d87dfd2
+index 00000000..c1bcacba
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,350 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
-+import com.genymobile.scrcpy.daemon.DaemonVideoPipeline;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
 +import com.genymobile.scrcpy.device.Streamer;
 +import com.genymobile.scrcpy.model.Codec;

@@ -1,10 +1,10 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
 new file mode 100644
-index 00000000..acd4b39a
+index 00000000..3f1ff68b
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
 @@ -0,0 +1,473 @@
-+package com.genymobile.scrcpy.daemon;
++package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.ControlChannel;

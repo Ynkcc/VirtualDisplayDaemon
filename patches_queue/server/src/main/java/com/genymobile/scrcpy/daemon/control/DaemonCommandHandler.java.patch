@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..5569f0fa
+index 00000000..a63fe21f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 @@ -0,0 +1,338 @@
@@ -10,8 +10,8 @@ index 00000000..5569f0fa
 +import com.genymobile.scrcpy.control.ControlMessageExtension;
 +import com.genymobile.scrcpy.control.DeviceMessage;
 +import com.genymobile.scrcpy.control.DeviceMessageSender;
-+import com.genymobile.scrcpy.daemon.DaemonExitCoordinator;
-+import com.genymobile.scrcpy.daemon.SessionConfigurator;
++import com.genymobile.scrcpy.daemon.core.DaemonExitCoordinator;
++import com.genymobile.scrcpy.daemon.core.SessionConfigurator;
 +import com.genymobile.scrcpy.daemon.display.ActivityLauncher;
 +import com.genymobile.scrcpy.daemon.display.AppLister;
 +import com.genymobile.scrcpy.daemon.display.RotationController;

@@ -1,10 +1,10 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonExitCoordinator.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonExitCoordinator.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonExitCoordinator.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonExitCoordinator.java
 new file mode 100644
-index 00000000..6fc15ec1
+index 00000000..162bd554
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonExitCoordinator.java
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonExitCoordinator.java
 @@ -0,0 +1,22 @@
-+package com.genymobile.scrcpy.daemon;
++package com.genymobile.scrcpy.daemon.core;
 +
 +public final class DaemonExitCoordinator {
 +

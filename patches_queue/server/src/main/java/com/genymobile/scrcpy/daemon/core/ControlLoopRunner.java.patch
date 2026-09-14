@@ -1,10 +1,10 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/ControlLoopRunner.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ControlLoopRunner.java
 new file mode 100644
-index 00000000..e07310dd
+index 00000000..19a333a3
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ControlLoopRunner.java
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ControlLoopRunner.java
 @@ -0,0 +1,69 @@
-+package com.genymobile.scrcpy.daemon;
++package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.AsyncProcessor;
 +import com.genymobile.scrcpy.control.Controller;

@@ -1,10 +1,10 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java
 new file mode 100644
-index 00000000..7a72f278
+index 00000000..196252ab
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java
 @@ -0,0 +1,352 @@
-+package com.genymobile.scrcpy.daemon;
++package com.genymobile.scrcpy.daemon.core;
 +
 +import android.os.Looper;
 +

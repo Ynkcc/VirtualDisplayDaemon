@@ -1,10 +1,10 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/SessionConfigurator.java b/server/src/main/java/com/genymobile/scrcpy/daemon/SessionConfigurator.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionConfigurator.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionConfigurator.java
 new file mode 100644
-index 00000000..ce588e64
+index 00000000..edc349de
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/SessionConfigurator.java
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionConfigurator.java
 @@ -0,0 +1,34 @@
-+package com.genymobile.scrcpy.daemon;
++package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +

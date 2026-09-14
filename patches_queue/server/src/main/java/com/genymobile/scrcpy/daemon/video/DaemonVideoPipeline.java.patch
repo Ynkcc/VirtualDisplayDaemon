@@ -1,14 +1,15 @@
-diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/DaemonVideoPipeline.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/DaemonVideoPipeline.java
 new file mode 100644
-index 00000000..0a8ae2f9
+index 00000000..dd6ae257
 --- /dev/null
-+++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java
-@@ -0,0 +1,121 @@
-+package com.genymobile.scrcpy.daemon;
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/DaemonVideoPipeline.java
+@@ -0,0 +1,122 @@
++package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
 +import com.genymobile.scrcpy.control.PositionMapper;
++import com.genymobile.scrcpy.daemon.core.DaemonArgs;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
 +import com.genymobile.scrcpy.video.FrameSink;
 +import com.genymobile.scrcpy.video.ScreenCapture;
