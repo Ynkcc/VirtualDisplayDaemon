@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
 new file mode 100644
-index 00000000..3d723339
+index 00000000..b074a865
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
 @@ -0,0 +1,155 @@
@@ -62,7 +62,7 @@ index 00000000..3d723339
 +                ss.setReuseAddress(true);
 +                ss.bind(new InetSocketAddress(addr, port), 50);
 +                serverSockets.add(ss);
-+                Ln.i("TcpServerSocketListener: ServerSocket bound to " + addr + ":" + port);
++                Ln.i("Daemon: ServerSocket bound to " + addr + ":" + port);
 +
 +                // 启动接收线程
 +                Thread thread = new Thread(() -> {
@@ -76,7 +76,7 @@ index 00000000..3d723339
 +                            try {
 +                                s.setSoTimeout(TcpDesktopConnection.HANDSHAKE_SO_TIMEOUT_MS);
 +                            } catch (java.net.SocketException se) {
-+                                Ln.w("TcpServerSocketListener: failed to set handshake soTimeout: " + se.getMessage());
++                                Ln.w("Daemon: failed to set handshake soTimeout: " + se.getMessage());
 +                            }
 +                            acceptedSockets.put(s);
 +                        } catch (IOException e) {
@@ -99,7 +99,7 @@ index 00000000..3d723339
 +                    throw e;
 +                }
 +                // 辅助地址绑定失败可容忍：双栈主地址通常已覆盖
-+                Ln.i("TcpServerSocketListener: " + addr + " not bound (likely covered by dual-stack " + bindAddress + "): " + e.getMessage());
++                Ln.i("Daemon: " + addr + " not bound (likely covered by dual-stack " + bindAddress + "): " + e.getMessage());
 +            } catch (IOException e) {
 +                Ln.e("Failed to bind to " + addr + ":" + port, e);
 +                if (addressesToBind.size() == 1 || addr.equals(bindAddress)) {
@@ -114,9 +114,9 @@ index 00000000..3d723339
 +        for (ServerSocket ss : serverSockets) {
 +            try {
 +                ss.close();
-+                Ln.i("TcpServerSocketListener: ServerSocket closed: " + ss.getLocalSocketAddress());
++                Ln.i("Daemon: ServerSocket closed: " + ss.getLocalSocketAddress());
 +            } catch (IOException e) {
-+                Ln.w("TcpServerSocketListener: failed to close ServerSocket", e);
++                Ln.w("Daemon: failed to close ServerSocket", e);
 +            }
 +        }
 +        serverSockets.clear();

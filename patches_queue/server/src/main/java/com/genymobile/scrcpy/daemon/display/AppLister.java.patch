@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
 new file mode 100644
-index 00000000..a1175fff
+index 00000000..088252a2
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/AppLister.java
 @@ -0,0 +1,191 @@
@@ -57,7 +57,7 @@ index 00000000..a1175fff
 +            Collections.sort(result, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
 +            return result;
 +        } catch (Exception e) {
-+            Ln.e("AppLister: failed to list installed apps", e);
++            Ln.e("Daemon: failed to list installed apps", e);
 +            return Collections.emptyList();
 +        }
 +    }
@@ -84,7 +84,7 @@ index 00000000..a1175fff
 +                }
 +            }
 +        } catch (Exception e) {
-+            Ln.w("AppLister: failed to resolve launcher label for " + info.packageName, e);
++            Ln.w("Daemon: failed to resolve launcher label for " + info.packageName, e);
 +        }
 +        return info.packageName;
 +    }
@@ -124,7 +124,7 @@ index 00000000..a1175fff
 +                    return rs.trim();
 +                }
 +            } catch (Exception e) {
-+                Ln.w("AppLister: failed to load label resource for " + info.packageName, e);
++                Ln.w("Daemon: failed to load label resource for " + info.packageName, e);
 +            }
 +            // Fall back to reading the APK resource table directly. This is the
 +            // reliable path under the daemon's fabricated context.
@@ -165,7 +165,7 @@ index 00000000..a1175fff
 +            }
 +            return s != null && !s.isEmpty() ? s : "";
 +        } catch (Exception e) {
-+            Ln.w("AppLister: failed to load label from APK for " + info.packageName, e);
++            Ln.w("Daemon: failed to load label from APK for " + info.packageName, e);
 +            return "";
 +        } finally {
 +            if (am != null) {

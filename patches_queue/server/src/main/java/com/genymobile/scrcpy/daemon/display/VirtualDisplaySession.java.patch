@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java
 new file mode 100644
-index 00000000..83377db4
+index 00000000..df9f6308
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java
 @@ -0,0 +1,140 @@
@@ -84,7 +84,7 @@ index 00000000..83377db4
 +                }
 +            }
 +        } catch (Exception e) {
-+            Ln.e("VirtualDisplaySession: failed to set surface for displayId=" + displayId, e);
++            Ln.e("Daemon: failed to set surface for displayId=" + displayId, e);
 +        }
 +    }
 +
@@ -93,22 +93,22 @@ index 00000000..83377db4
 +            if (virtualDisplay != null && imageReader != null) {
 +                virtualDisplay.setSurface(imageReader.getSurface());
 +                this.externalSurface = null;
-+                Ln.i("VirtualDisplaySession: restored fallback surface for displayId=" + displayId);
++                Ln.i("Daemon: restored fallback surface for displayId=" + displayId);
 +            }
 +        } catch (Exception e) {
-+            Ln.w("VirtualDisplaySession: failed to restore fallback surface for displayId=" + displayId, e);
++            Ln.w("Daemon: failed to restore fallback surface for displayId=" + displayId, e);
 +        }
 +    }
 +
 +    @Override
 +    public synchronized void close() {
-+        Ln.i("VirtualDisplaySession: closing session for displayId=" + displayId + " (" + name + ")");
++        Ln.i("Daemon: closing session for displayId=" + displayId + " (" + name + ")");
 +        
 +        if (externalSurface != null) {
 +            try {
 +                externalSurface.release();
 +            } catch (Exception ignore) {
-+                Ln.d("VirtualDisplaySession: failed to release externalSurface for displayId=" + displayId + ": " + ignore.getMessage());
++                Ln.d("Daemon: failed to release externalSurface for displayId=" + displayId + ": " + ignore.getMessage());
 +            }
 +            externalSurface = null;
 +        }
@@ -117,7 +117,7 @@ index 00000000..83377db4
 +            try {
 +                imageReader.close();
 +            } catch (Exception e) {
-+                Ln.e("VirtualDisplaySession: failed to close ImageReader for displayId=" + displayId, e);
++                Ln.e("Daemon: failed to close ImageReader for displayId=" + displayId, e);
 +            }
 +            imageReader = null;
 +        }
@@ -126,7 +126,7 @@ index 00000000..83377db4
 +            try {
 +                readerThread.quitSafely();
 +            } catch (Exception ignore) {
-+                Ln.d("VirtualDisplaySession: failed to quitSafely readerThread for displayId=" + displayId + ": " + ignore.getMessage());
++                Ln.d("Daemon: failed to quitSafely readerThread for displayId=" + displayId + ": " + ignore.getMessage());
 +            }
 +        }
 +
@@ -135,11 +135,11 @@ index 00000000..83377db4
 +                try {
 +                    virtualDisplay.setSurface(null);
 +                } catch (Exception ignore) {
-+                    Ln.d("VirtualDisplaySession: failed to clear surface before release for displayId=" + displayId + ": " + ignore.getMessage());
++                    Ln.d("Daemon: failed to clear surface before release for displayId=" + displayId + ": " + ignore.getMessage());
 +                }
 +                virtualDisplay.release();
 +            } catch (Exception e) {
-+                Ln.e("VirtualDisplaySession: failed to release VirtualDisplay for displayId=" + displayId, e);
++                Ln.e("Daemon: failed to release VirtualDisplay for displayId=" + displayId, e);
 +            }
 +        }
 +    }

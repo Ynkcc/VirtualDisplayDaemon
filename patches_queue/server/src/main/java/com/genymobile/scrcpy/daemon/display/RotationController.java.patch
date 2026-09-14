@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/RotationController.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/RotationController.java
 new file mode 100644
-index 00000000..104f3403
+index 00000000..eb4ec196
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/RotationController.java
 @@ -0,0 +1,86 @@
@@ -69,7 +69,7 @@ index 00000000..104f3403
 +        validate(displayId);
 +        validateRotationValue(rotation);
 +        ServiceManager.getWindowManager().freezeRotation(displayId, rotation);
-+        Ln.i("RotationController: froze rotation=" + rotation + " for displayId=" + displayId);
++        Ln.i("Daemon: froze rotation=" + rotation + " for displayId=" + displayId);
 +    }
 +
 +    /**
@@ -78,7 +78,7 @@ index 00000000..104f3403
 +    public void thaw(int displayId) throws Exception {
 +        validate(displayId);
 +        ServiceManager.getWindowManager().thawRotation(displayId);
-+        Ln.i("RotationController: thawed rotation for displayId=" + displayId);
++        Ln.i("Daemon: thawed rotation for displayId=" + displayId);
 +    }
 +
 +    /**

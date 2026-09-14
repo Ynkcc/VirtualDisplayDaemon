@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionVideoController.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionVideoController.java
 new file mode 100644
-index 00000000..310c927a
+index 00000000..e5c05f39
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionVideoController.java
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,166 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.Options;
@@ -32,6 +32,7 @@ index 00000000..310c927a
 +
 +    private final int sessionId;
 +    private final int displayId;
++    private final String tag;
 +    private final TcpVideoBinding videoBinding;
 +    private final Options options;
 +    private final String[] baseArgs;
@@ -60,6 +61,7 @@ index 00000000..310c927a
 +                                  BooleanSupplier isSessionExited) {
 +        this.sessionId = sessionId;
 +        this.displayId = displayId;
++        this.tag = DaemonLog.tag(sessionId, displayId);
 +        this.videoBinding = videoBinding;
 +        this.options = options;
 +        this.baseArgs = baseArgs;
@@ -82,18 +84,18 @@ index 00000000..310c927a
 +                // 旧流仍标记为活动时（客户端已关 socket 但死亡回调未触发，或显式重绑）
 +                // 先停掉，保证新 socket 拿到全新订阅者与全新 VD 引用。
 +                if (videoStarted) {
-+                    Ln.i("Session[" + sessionId + "]: re-bind video socket for displayId=" + displayId
++                    Ln.i(tag + ": re-bind video socket for displayId=" + displayId
 +                            + ", stopping previous stream first");
 +                    stopVideoInternal();
 +                }
 +                videoBinding.bindVideoSocket(socket);
-+                Ln.i("Session[" + sessionId + "]: video socket bound for displayId=" + displayId
++                Ln.i(tag + ": video socket bound for displayId=" + displayId
 +                        + ", auto-starting stream");
 +                if (!startVideoStreamInternal()) {
-+                    Ln.w("Session[" + sessionId + "]: auto-start failed for displayId=" + displayId);
++                    Ln.w(tag + ": auto-start failed for displayId=" + displayId);
 +                }
 +            } catch (IOException e) {
-+                Ln.e("Session[" + sessionId + "]: failed to bind video socket displayId=" + displayId, e);
++                Ln.e(tag + ": failed to bind video socket displayId=" + displayId, e);
 +            }
 +        }
 +    }
@@ -106,7 +108,7 @@ index 00000000..310c927a
 +            return true;
 +        }
 +        if (!videoBinding.hasVideo() || videoBinding.getVideoFd() == null) {
-+            Ln.w("Session[" + sessionId + "]: no video socket available (displayId=" + displayId + ")");
++            Ln.w(tag + ": no video socket available (displayId=" + displayId + ")");
 +            return false;
 +        }
 +
@@ -117,7 +119,7 @@ index 00000000..310c927a
 +            vdAcquired = true;
 +        }
 +
-+        Ln.i("Session[" + sessionId + "]: launching video stream for displayId=" + displayId);
++        Ln.i(tag + ": launching video stream for displayId=" + displayId);
 +        try {
 +            VideoSubscriber subscriber = broadcasterRegistry.acquireSubscriber(
 +                    displayId, sessionId, videoBinding.getVideoFd(), options, baseArgs, controller);
@@ -126,10 +128,10 @@ index 00000000..310c927a
 +            subscriber.setOnDeath(() -> onSubscriberDied(subscriber));
 +            currentSubscriber = subscriber;
 +            videoStarted = true;
-+            Ln.i("Session[" + sessionId + "]: video stream started for displayId=" + displayId);
++            Ln.i(tag + ": video stream started for displayId=" + displayId);
 +            return true;
 +        } catch (Exception e) {
-+            Ln.e("Session[" + sessionId + "]: failed to start video stream displayId=" + displayId, e);
++            Ln.e(tag + ": failed to start video stream displayId=" + displayId, e);
 +            stopVideoInternal();
 +            return false;
 +        }
@@ -144,11 +146,11 @@ index 00000000..310c927a
 +     */
 +    private synchronized void onSubscriberDied(VideoSubscriber deadSub) {
 +        if (currentSubscriber == deadSub) {
-+            Ln.i("Session[" + sessionId + "]: video subscriber died (displayId=" + displayId
++            Ln.i(tag + ": video subscriber died (displayId=" + displayId
 +                    + "), releasing VD ref + resetting stream state");
 +            stopVideoInternal();
 +        } else {
-+            Ln.i("Session[" + sessionId + "]: stale subscriber died (displayId=" + displayId
++            Ln.i(tag + ": stale subscriber died (displayId=" + displayId
 +                    + ") — already replaced by re-bind, skipping teardown");
 +        }
 +    }
@@ -165,6 +167,6 @@ index 00000000..310c927a
 +            virtualDisplayRegistry.release(displayId, sessionId);
 +            vdAcquired = false;
 +        }
-+        Ln.i("Session[" + sessionId + "]: video stream stopped (displayId=" + displayId + ")");
++        Ln.i(tag + ": video stream stopped (displayId=" + displayId + ")");
 +    }
 +}

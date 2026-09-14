@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/ControlLoopRunner.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ControlLoopRunner.java
 new file mode 100644
-index 00000000..19a333a3
+index 00000000..4d4ed790
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ControlLoopRunner.java
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,71 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.AsyncProcessor;
@@ -20,10 +20,12 @@ index 00000000..19a333a3
 +public final class ControlLoopRunner {
 +
 +    private final int sessionId;
++    private final String tag;
 +    private Thread thread;
 +
 +    public ControlLoopRunner(int sessionId) {
 +        this.sessionId = sessionId;
++        this.tag = DaemonLog.tag(sessionId);
 +    }
 +
 +    /**
@@ -33,15 +35,15 @@ index 00000000..19a333a3
 +    public void start(Controller controller, AsyncProcessor.TerminationListener onTerminated) {
 +        thread = new Thread(() -> {
 +            try {
-+                Ln.i("Session[" + sessionId + "]: calling controller.start()");
++                Ln.i(tag + ": calling controller.start()");
 +                controller.start(onTerminated);
-+                Ln.i("Session[" + sessionId + "]: controller.start() returned, joining...");
++                Ln.i(tag + ": controller.start() returned, joining...");
 +                controller.join();
-+                Ln.i("Session[" + sessionId + "]: controller.join() returned");
++                Ln.i(tag + ": controller.join() returned");
 +            } catch (InterruptedException e) {
 +                Thread.currentThread().interrupt();
 +            } catch (Throwable t) {
-+                Ln.e("Session[" + sessionId + "]: ctrlThread error", t);
++                Ln.e(tag + ": ctrlThread error", t);
 +            }
 +        }, "ctrl-" + sessionId);
 +        thread.setDaemon(true);
@@ -51,7 +53,7 @@ index 00000000..19a333a3
 +    public void join() throws InterruptedException {
 +        if (thread != null) {
 +            thread.join();
-+            Ln.i("Session[" + sessionId + "]: ctrlThread.join() returned");
++            Ln.i(tag + ": ctrlThread.join() returned");
 +        }
 +    }
 +

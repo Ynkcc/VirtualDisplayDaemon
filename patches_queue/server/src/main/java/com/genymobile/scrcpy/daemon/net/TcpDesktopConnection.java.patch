@@ -1,12 +1,13 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..f863d018
+index 00000000..43ac1981
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,354 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
++import com.genymobile.scrcpy.daemon.core.DaemonLog;
 +import com.genymobile.scrcpy.util.IO;
 +import com.genymobile.scrcpy.util.Ln;
 +import com.genymobile.scrcpy.util.StringUtils;
@@ -124,10 +125,12 @@ index 00000000..f863d018
 +    private final ControlChannel negotiationChannel;
 +    private final Map<RoleDisplayKey, Channel> channels = new HashMap<>();
 +    private final int sessionId;
++    private final String tag;
 +
 +    public TcpDesktopConnection(Socket negotiationSocket, int sessionId) throws IOException {
 +        this.negotiationSocket = negotiationSocket;
 +        this.sessionId = sessionId;
++        this.tag = DaemonLog.tag(sessionId);
 +        this.negotiationChannel = negotiationSocket != null
 +                ? new ControlChannel(negotiationSocket.getInputStream(), negotiationSocket.getOutputStream())
 +                : null;
@@ -151,7 +154,7 @@ index 00000000..f863d018
 +            closeQuietly(removeChannelLocked(key));
 +            ControlChannel ch = new ControlChannel(socket.getInputStream(), socket.getOutputStream());
 +            channels.put(key, new Channel(socket, null, ch));
-+            Ln.d("TcpDesktopConnection[" + sessionId + "]: control socket bound " + key);
++            Ln.d(tag + ": control socket bound " + key);
 +            return ch;
 +        }
 +    }
@@ -170,7 +173,7 @@ index 00000000..f863d018
 +        synchronized (channels) {
 +            closeQuietly(removeChannelLocked(key));
 +            channels.put(key, new Channel(socket, fd, null));
-+            Ln.d("TcpDesktopConnection[" + sessionId + "]: " + key + " bound, fd=" + fd);
++            Ln.d(tag + ": " + key + " bound, fd=" + fd);
 +        }
 +    }
 +

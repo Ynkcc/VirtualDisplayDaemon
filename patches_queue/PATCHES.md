@@ -3,7 +3,7 @@
 本目录保存 VirtualDisplay daemon 对 scrcpy 子模块 `server/` 的补丁集合。
 补丁路径前缀（`server/...`、`gradlew`）相对目标仓库根 **`daemon/scrcpy`**。
 
-共 **67 个补丁**：46 个新增文件（39 个 daemon 源码 + 7 个单元测试）+ 21 个修改上游文件。
+共 **68 个补丁**：47 个新增文件（40 个 daemon 源码 + 7 个单元测试）+ 21 个修改上游文件。
 
 > 应用工具：`../tools/apply_patches.sh`（逐补丁判定 APPLIED/CLEAN/CONFLICT，普通重跑即可
 > 修复缺失文件；`--force` 可先还原 baseline 再整体重放）、
@@ -13,7 +13,7 @@
 
 ---
 
-## 1. 新增文件（46 个）
+## 1. 新增文件（47 个）
 
 按包分组。这些是 daemon 模式新增的独立实现，**无相互依赖**，可任意序应用，
 但需在引用它们的「修改上游」补丁之前应用（保证编译正确）。
@@ -29,7 +29,7 @@
 | `video/ExternalDisplayProvider.java.patch` | `server/.../video/ExternalDisplayProvider.java` | `ScreenCapture`（修改）、`DisplaySurfaceBroker` |
 | `video/FrameSink.java.patch` | `server/.../video/FrameSink.java` | `Streamer`/`SurfaceEncoder`（修改）、`FrameBroadcaster` |
 
-### 1.3 daemon（36）
+### 1.3 daemon（37）
 `daemon/` 包为 daemon 模式的核心。包布局：`core`（会话/服务/参数编排）、
 `control`（daemon 协议与命令分发）、`display`（VD 生命周期）、`net`（socket/握手）、
 `video`（帧广播管线）、`compat`（系统服务反射兼容层）：
@@ -50,6 +50,7 @@
 | `daemon/core/ControlLoopRunner.java.patch` | `daemon/core/ControlLoopRunner.java` |
 | `daemon/core/DaemonArgs.java.patch` | `daemon/core/DaemonArgs.java` |
 | `daemon/core/DaemonExitCoordinator.java.patch` | `daemon/core/DaemonExitCoordinator.java` |
+| `daemon/core/DaemonLog.java.patch` | `daemon/core/DaemonLog.java`（统一日志 tag 工具） |
 | `daemon/core/DaemonOptions.java.patch` | `daemon/core/DaemonOptions.java` |
 | `daemon/core/DaemonServer.java.patch` | `daemon/core/DaemonServer.java` |
 | `daemon/core/package-info.java.patch` | `daemon/core/package-info.java` |

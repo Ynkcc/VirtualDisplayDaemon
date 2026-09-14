@@ -1,0 +1,29 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonLog.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonLog.java
+new file mode 100644
+index 00000000..28d14d57
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonLog.java
+@@ -0,0 +1,23 @@
++package com.genymobile.scrcpy.daemon.core;
++
++/**
++ * daemon 日志统一 tag：{@code Daemon[<sessionId>/<displayId>]}；
++ * 无会话上下文的全局消息直接使用 {@code Daemon} 前缀。
++ */
++public final class DaemonLog {
++
++    private DaemonLog() {
++    }
++
++    public static String tag(int sessionId, int displayId) {
++        return "Daemon[" + sessionId + "/" + displayId + "]";
++    }
++
++    public static String tag(int sessionId) {
++        return "Daemon[" + sessionId + "/-]";
++    }
++
++    public static String tagDisplay(int displayId) {
++        return "Daemon[-/" + displayId + "]";
++    }
++}

@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/ActivityLauncher.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/ActivityLauncher.java
 new file mode 100644
-index 00000000..54a496e7
+index 00000000..e2418300
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/ActivityLauncher.java
 @@ -0,0 +1,79 @@
@@ -23,7 +23,7 @@ index 00000000..54a496e7
 +    }
 +
 +    public static int startActivity(String packageName, int displayId) {
-+        Ln.i("ActivityLauncher: startActivity for package=" + packageName + " on display " + displayId);
++        Ln.i("Daemon: startActivity for package=" + packageName + " on display " + displayId);
 +        try {
 +            PackageManager pm = FakeContext.get().getPackageManager();
 +            Intent launchIntent = pm.getLaunchIntentForPackage(packageName);
@@ -31,12 +31,12 @@ index 00000000..54a496e7
 +                launchIntent = pm.getLeanbackLaunchIntentForPackage(packageName);
 +            }
 +            if (launchIntent == null) {
-+                Ln.w("ActivityLauncher: Cannot create launch intent for app " + packageName);
++                Ln.w("Daemon: Cannot create launch intent for app " + packageName);
 +                return -1;
 +            }
 +            return startActivityOnDisplay(launchIntent, displayId);
 +        } catch (Exception e) {
-+            Ln.e("ActivityLauncher: failed to start activity " + packageName + " on display " + displayId, e);
++            Ln.e("Daemon: failed to start activity " + packageName + " on display " + displayId, e);
 +            return -1;
 +        }
 +    }
@@ -50,7 +50,7 @@ index 00000000..54a496e7
 +     * remote nodes.
 +     */
 +    public static int launchHome(int displayId) {
-+        Ln.i("ActivityLauncher: launchHome on display " + displayId);
++        Ln.i("Daemon: launchHome on display " + displayId);
 +        try {
 +            Intent home = new Intent(Intent.ACTION_MAIN);
 +            home.addCategory(Intent.CATEGORY_HOME);
@@ -58,7 +58,7 @@ index 00000000..54a496e7
 +            home.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
 +            return startActivityOnDisplay(home, displayId);
 +        } catch (Exception e) {
-+            Ln.e("ActivityLauncher: failed to launch home on display " + displayId, e);
++            Ln.e("Daemon: failed to launch home on display " + displayId, e);
 +            return -1;
 +        }
 +    }
@@ -75,10 +75,10 @@ index 00000000..54a496e7
 +            }
 +
 +            int result = ServiceManager.getActivityManager().startActivity(intent, options);
-+            Ln.i("ActivityLauncher: startActivity result=" + result + " on display " + displayId);
++            Ln.i("Daemon: startActivity result=" + result + " on display " + displayId);
 +            return result >= 0 ? 0 : -1;
 +        } catch (Exception e) {
-+            Ln.e("ActivityLauncher: failed to start activity on display " + displayId, e);
++            Ln.e("Daemon: failed to start activity on display " + displayId, e);
 +            return -1;
 +        }
 +    }

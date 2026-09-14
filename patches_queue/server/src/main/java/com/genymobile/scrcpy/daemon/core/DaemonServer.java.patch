@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java
 new file mode 100644
-index 00000000..e0cca917
+index 00000000..3ef6310d
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java
 @@ -0,0 +1,354 @@
@@ -84,7 +84,7 @@ index 00000000..e0cca917
 +    }
 +
 +    public void run() throws IOException {
-+        Ln.i("DaemonServer starting on port " + daemonOptions.getPort() + ", bind=" + daemonOptions.getBindAddress());
++        Ln.i("Daemon: starting on port " + daemonOptions.getPort() + ", bind=" + daemonOptions.getBindAddress());
 +
 +        try {
 +            // 先取与端口无关的单实例锁再绑定：即便换了端口，第二个 daemon 也必须在这里失败。
@@ -131,7 +131,7 @@ index 00000000..e0cca917
 +    }
 +
 +    private void acceptLoop() {
-+        Ln.i("DaemonServer accept loop started");
++        Ln.i("Daemon: accept loop started");
 +        while (running.get()) {
 +            try {
 +                Socket socket = TcpServerSocketListener.acceptNextSocket();
@@ -191,7 +191,7 @@ index 00000000..e0cca917
 +                }
 +            }
 +        }
-+        Ln.i("DaemonServer accept loop exited");
++        Ln.i("Daemon: accept loop exited");
 +    }
 +
 +    private void blacklistIp(String ip) {
@@ -247,14 +247,14 @@ index 00000000..e0cca917
 +        }
 +
 +        sessions.put(sessionId, session);
-+        Ln.i("DaemonServer: new negotiation session " + sessionId + " from " + socket.getRemoteSocketAddress());
++        Ln.i(DaemonLog.tag(sessionId) + ": new negotiation session from " + socket.getRemoteSocketAddress());
 +
 +        try {
 +            clientExecutor.submit(session);
 +        } catch (RejectedExecutionException e) {
 +            // 执行器在 accept 与 submit 之间被关闭（daemon 正在退出）：移除表项并拆掉会话，
 +            // 避免 socket 泄漏。
-+            Ln.w("DaemonServer: rejected session " + sessionId + " (executor shut down?), cleaning up");
++            Ln.w(DaemonLog.tag(sessionId) + ": session rejected (executor shut down?), cleaning up");
 +            sessions.remove(sessionId);
 +            session.shutdown();
 +        }
@@ -266,7 +266,7 @@ index 00000000..e0cca917
 +            int displayId = TcpDesktopConnection.readDisplayId(socket);
 +            ClientSession session = sessions.get(sessionId);
 +            if (session == null) {
-+                Ln.w("Socket for role " + role + " for unknown session " + sessionId);
++                Ln.w(DaemonLog.tag(sessionId) + ": role socket " + role + " for unknown session");
 +                TcpDesktopConnection.closeQuietly(socket);
 +                return;
 +            }
@@ -294,7 +294,7 @@ index 00000000..e0cca917
 +    }
 +
 +    private void shutdown() {
-+        Ln.i("DaemonServer shutting down, " + sessions.size() + " active sessions");
++        Ln.i("Daemon: shutting down, " + sessions.size() + " active sessions");
 +
 +        for (ClientSession session : sessions.values()) {
 +            session.shutdown();
@@ -332,7 +332,7 @@ index 00000000..e0cca917
 +            ExecutorService executor = executors.get(i);
 +            try {
 +                if (!executor.awaitTermination(WORKER_TERMINATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-+                    Ln.w("DaemonServer: " + names.get(i) + " executor did not terminate within "
++                    Ln.w("Daemon: " + names.get(i) + " executor did not terminate within "
 +                            + WORKER_TERMINATION_TIMEOUT_MS + "ms; forcing shutdownNow");
 +                    executor.shutdownNow();
 +                }
@@ -355,6 +355,6 @@ index 00000000..e0cca917
 +
 +    void removeSession(int sessionId) {
 +        sessions.remove(sessionId);
-+        Ln.i("DaemonServer: session " + sessionId + " removed");
++        Ln.i(DaemonLog.tag(sessionId) + ": session removed");
 +    }
 +}

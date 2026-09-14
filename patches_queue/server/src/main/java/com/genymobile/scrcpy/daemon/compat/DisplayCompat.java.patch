@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
 new file mode 100644
-index 00000000..6010758f
+index 00000000..e86c569f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
 @@ -0,0 +1,197 @@
@@ -54,7 +54,7 @@ index 00000000..6010758f
 +                    try {
 +                        moveStackToDisplayMethod = atmClass.getMethod("moveStackToDisplay", int.class, int.class);
 +                    } catch (NoSuchMethodException ex) {
-+                        Ln.w("DisplayCompat: Neither moveRootTaskToDisplay nor moveStackToDisplay found");
++                        Ln.w("Daemon: Neither moveRootTaskToDisplay nor moveStackToDisplay found");
 +                    }
 +                }
 +            }
@@ -64,7 +64,7 @@ index 00000000..6010758f
 +            taskIdField = taskInfoClass.getField("taskId");
 +
 +        } catch (Throwable t) {
-+            Ln.e("DisplayCompat: Failed to initialize task migration reflection", t);
++            Ln.e("Daemon: Failed to initialize task migration reflection", t);
 +        }
 +    }
 +
@@ -92,9 +92,9 @@ index 00000000..6010758f
 +     */
 +    public static void moveTasksToDefaultDisplay(int displayId) {
 +        try {
-+            Ln.i("DisplayCompat: Checking tasks on display " + displayId + " to move back to display 0");
++            Ln.i("Daemon: Checking tasks on display " + displayId + " to move back to display 0");
 +            if (atmInstance == null || getRecentTasksMethod == null) {
-+                Ln.w("DisplayCompat: atmInstance or getRecentTasksMethod is null, skip migration");
++                Ln.w("Daemon: atmInstance or getRecentTasksMethod is null, skip migration");
 +                return;
 +            }
 +
@@ -114,19 +114,19 @@ index 00000000..6010758f
 +                    int taskId = taskIdField.getInt(taskInfo);
 +
 +                    if (taskDisplayId == displayId) {
-+                        Ln.i("DisplayCompat: Moving task " + taskId + " back to display 0");
++                        Ln.i("Daemon: Moving task " + taskId + " back to display 0");
 +                        if (moveRootTaskToDisplayMethod != null) {
 +                            moveRootTaskToDisplayMethod.invoke(atmInstance, taskId, 0);
 +                        } else if (moveStackToDisplayMethod != null) {
 +                            moveStackToDisplayMethod.invoke(atmInstance, taskId, 0);
 +                        } else {
-+                            Ln.w("DisplayCompat: Move task method not available");
++                            Ln.w("Daemon: Move task method not available");
 +                        }
 +                    }
 +                }
 +            }
 +        } catch (Throwable t) {
-+            Ln.e("DisplayCompat: Failed to move tasks back to display 0", t);
++            Ln.e("Daemon: Failed to move tasks back to display 0", t);
 +        }
 +    }
 +
@@ -135,10 +135,10 @@ index 00000000..6010758f
 +            if (orphanReleaseSearched && cachedOrphanReleaseMethod != null && cachedOrphanReleaseTarget != null) {
 +                try {
 +                    cachedOrphanReleaseMethod.invoke(cachedOrphanReleaseTarget, displayId);
-+                    Ln.i("DisplayCompat: bestEffortReleaseOrphan succeeded via cached method=" + cachedOrphanReleaseMethod.getName());
++                    Ln.i("Daemon: bestEffortReleaseOrphan succeeded via cached method=" + cachedOrphanReleaseMethod.getName());
 +                    return true;
 +                } catch (Throwable t) {
-+                    Ln.w("DisplayCompat: cached release method failed, re-scanning...", t);
++                    Ln.w("Daemon: cached release method failed, re-scanning...", t);
 +                    cachedOrphanReleaseMethod = null;
 +                    cachedOrphanReleaseTarget = null;
 +                    orphanReleaseSearched = false;
@@ -165,7 +165,7 @@ index 00000000..6010758f
 +                    targets.add(mDm);
 +                }
 +            } catch (Throwable ignored) {
-+                Ln.d("DisplayCompat: mDm field not present on " + dmg.getClass().getName() + " (probing)");
++                Ln.d("Daemon: mDm field not present on " + dmg.getClass().getName() + " (probing)");
 +            }
 +
 +            for (Object target : targets) {
@@ -177,7 +177,7 @@ index 00000000..6010758f
 +                            try {
 +                                method.setAccessible(true);
 +                                method.invoke(target, displayId);
-+                                Ln.w("DisplayCompat: bestEffortReleaseOrphan succeeded via method=" + method.getName() + " on " + target.getClass().getName());
++                                Ln.w("Daemon: bestEffortReleaseOrphan succeeded via method=" + method.getName() + " on " + target.getClass().getName());
 +                                synchronized (DisplayCompat.class) {
 +                                    cachedOrphanReleaseMethod = method;
 +                                    cachedOrphanReleaseTarget = target;
@@ -185,14 +185,14 @@ index 00000000..6010758f
 +                                }
 +                                return true;
 +                            } catch (Throwable ignored) {
-+                                Ln.d("DisplayCompat: release method " + method.getName() + " not applicable on " + target.getClass().getName() + " (probing)");
++                                Ln.d("Daemon: release method " + method.getName() + " not applicable on " + target.getClass().getName() + " (probing)");
 +                            }
 +                        }
 +                    }
 +                }
 +            }
 +        } catch (Throwable t) {
-+            Ln.e("DisplayCompat: bestEffortReleaseOrphan failed", t);
++            Ln.e("Daemon: bestEffortReleaseOrphan failed", t);
 +        }
 +
 +        synchronized (DisplayCompat.class) {

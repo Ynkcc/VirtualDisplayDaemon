@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..d65ce54e
+index 00000000..28e3c6b4
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 @@ -0,0 +1,507 @@
@@ -68,7 +68,7 @@ index 00000000..d65ce54e
 +        ImageReader imageReader = null;
 +        HandlerThread readerThread = null;
 +        try {
-+            Ln.i("VirtualDisplayRegistry: createVirtualDisplay name=" + name + ", width=" + width + ", height=" + height + ", dpi=" + dpi + ", flags=0x" + Integer.toHexString(flags) + ", mirrorDisplayId=" + mirrorDisplayId);
++            Ln.i("Daemon: createVirtualDisplay name=" + name + ", width=" + width + ", height=" + height + ", dpi=" + dpi + ", flags=0x" + Integer.toHexString(flags) + ", mirrorDisplayId=" + mirrorDisplayId);
 +
 +            readerThread = new HandlerThread("VDReader-" + name);
 +            readerThread.start();
@@ -82,7 +82,7 @@ index 00000000..d65ce54e
 +                // enforces dpi>0, so callers must not depend on it under mirror).
 +                // This is expected behaviour, not an error — hence info-level.
 +                if (dpi > 0) {
-+                    Ln.i("VirtualDisplayRegistry: mirroring displayId=" + mirrorDisplayId
++                    Ln.i("Daemon: mirroring displayId=" + mirrorDisplayId
 +                            + " — requested DPI=" + dpi + " is ignored (inherits source density)");
 +                }
 +                vd = ServiceManager.getDisplayManager()
@@ -102,14 +102,14 @@ index 00000000..d65ce54e
 +            synchronized (lock) {
 +                activeSessions.put(displayId, session);
 +            }
-+            Ln.i("VirtualDisplayRegistry: created virtual display id=" + displayId + " (" + width + "x" + height + "/" + dpi + ")");
++            Ln.i("Daemon: created virtual display id=" + displayId + " (" + width + "x" + height + "/" + dpi + ")");
 +            return displayId;
 +        } catch (Throwable t) {
 +            // Catch Throwable (not Exception): an Error raised after the reader thread was
 +            // started (e.g. OutOfMemoryError allocating the ImageReader buffers) must still
 +            // roll back the partial resources, otherwise the VirtualDisplay, the ImageReader
 +            // and the HandlerThread leak for the lifetime of the daemon.
-+            Ln.e("VirtualDisplayRegistry: failed to create virtual display", t);
++            Ln.e("Daemon: failed to create virtual display", t);
 +            cleanupCreateFailure(vd, imageReader, readerThread);
 +            if (t instanceof Error) {
 +                // Errors are fatal: report them to the caller rather than returning -1, which
@@ -132,14 +132,14 @@ index 00000000..d65ce54e
 +            try {
 +                vd.release();
 +            } catch (Throwable releaseEx) {
-+                Ln.w("VirtualDisplayRegistry: failed to release leaked virtual display", releaseEx);
++                Ln.w("Daemon: failed to release leaked virtual display", releaseEx);
 +            }
 +        }
 +        if (imageReader != null) {
 +            try {
 +                imageReader.close();
 +            } catch (Throwable ignore) {
-+                Ln.w("VirtualDisplayRegistry: failed to close ImageReader during create failure cleanup", ignore);
++                Ln.w("Daemon: failed to close ImageReader during create failure cleanup", ignore);
 +            }
 +        }
 +        if (readerThread != null) {
@@ -157,7 +157,7 @@ index 00000000..d65ce54e
 +                    img.close();
 +                }
 +            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: ImageReader error", t);
++                Ln.w("Daemon: ImageReader error", t);
 +            }
 +        }, new Handler(readerThread.getLooper()));
 +        return reader;
@@ -168,7 +168,7 @@ index 00000000..d65ce54e
 +        try {
 +            ServiceManager.getWindowManager().freezeRotation(displayId, Surface.ROTATION_0);
 +        } catch (Throwable t) {
-+            Ln.w("VirtualDisplayRegistry: freezeRotation failed (best-effort) for displayId=" + displayId, t);
++            Ln.w("Daemon: freezeRotation failed (best-effort) for displayId=" + displayId, t);
 +        }
 +    }
 +
@@ -194,7 +194,7 @@ index 00000000..d65ce54e
 +        if (session != null) {
 +            return actuallyDestroy(displayId, session, moveTasksToDefaultDisplay);
 +        }
-+        Ln.w("VirtualDisplayRegistry: display id=" + displayId + " not found in activeSessions, performing best-effort release of orphan display");
++        Ln.w("Daemon: display id=" + displayId + " not found in activeSessions, performing best-effort release of orphan display");
 +        return DisplayCompat.bestEffortReleaseOrphan(displayId);
 +    }
 +
@@ -210,21 +210,21 @@ index 00000000..d65ce54e
 +            // so any previously frozen orientation state is released back to the system.
 +            try {
 +                ServiceManager.getWindowManager().thawRotation(displayId);
-+                Ln.i("VirtualDisplayRegistry: thawed rotation for display id=" + displayId);
++                Ln.i("Daemon: thawed rotation for display id=" + displayId);
 +            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: failed to thaw rotation for displayId=" + displayId, t);
++                Ln.w("Daemon: failed to thaw rotation for displayId=" + displayId, t);
 +            }
 +            if (moveTasksToDefaultDisplay) {
 +                DisplayCompat.moveTasksToDefaultDisplay(displayId);
 +            } else {
-+                Ln.i("VirtualDisplayRegistry: skipping task migration for display id=" + displayId
++                Ln.i("Daemon: skipping task migration for display id=" + displayId
 +                        + " (moveTasksToDefaultDisplay=false)");
 +            }
 +            session.close();
-+            Ln.d("VirtualDisplayRegistry: released virtual display id=" + displayId);
++            Ln.d("Daemon: released virtual display id=" + displayId);
 +            return true;
 +        } catch (Exception e) {
-+            Ln.e("VirtualDisplayRegistry: failed to release virtual display id=" + displayId, e);
++            Ln.e("Daemon: failed to release virtual display id=" + displayId, e);
 +            return false;
 +        }
 +    }
@@ -244,7 +244,7 @@ index 00000000..d65ce54e
 +    public void acquire(int displayId, int sessionId) {
 +        synchronized (lock) {
 +            super.acquireRef(displayId, sessionId);
-+            Ln.d("VirtualDisplayRegistry: acquire display id=" + displayId + " for session " + sessionId
++            Ln.d("Daemon: acquire display id=" + displayId + " for session " + sessionId
 +                    + " (total users: " + userSessionCount(displayId) + ")");
 +        }
 +    }
@@ -269,7 +269,7 @@ index 00000000..d65ce54e
 +                session = activeSessions.remove(displayId);
 +            } else {
 +                // Other sessions (or this session's remaining refs) still hold the display.
-+                Ln.d("VirtualDisplayRegistry: display id=" + displayId + " session " + sessionId
++                Ln.d("Daemon: display id=" + displayId + " session " + sessionId
 +                        + " released a reference (users remain: " + userSessionCount(displayId) + ")");
 +            }
 +        }
@@ -301,7 +301,7 @@ index 00000000..d65ce54e
 +        // the loop above misses it, but the standard flow always acquires.
 +
 +        for (int displayId : toDestroy) {
-+            Ln.i("VirtualDisplayRegistry: destroying display " + displayId + " because session " + sessionId + " was the last user");
++            Ln.i("Daemon: destroying display " + displayId + " because session " + sessionId + " was the last user");
 +            releaseVirtualDisplay(displayId);
 +        }
 +    }
@@ -319,7 +319,7 @@ index 00000000..d65ce54e
 +            session = activeSessions.get(displayId);
 +        }
 +        if (session == null) {
-+            Ln.w("VirtualDisplayRegistry: cannot mark external surface, display id=" + displayId + " not found");
++            Ln.w("Daemon: cannot mark external surface, display id=" + displayId + " not found");
 +            return;
 +        }
 +        session.setExternalSurface(surface);
@@ -338,7 +338,7 @@ index 00000000..d65ce54e
 +            session = activeSessions.get(displayId);
 +        }
 +        if (session == null) {
-+            Ln.w("VirtualDisplayRegistry: display id=" + displayId + " not found for resize");
++            Ln.w("Daemon: display id=" + displayId + " not found for resize");
 +            return false;
 +        }
 +
@@ -353,7 +353,7 @@ index 00000000..d65ce54e
 +            }
 +            return resizeWithReaderSwap(displayId, session, vd, width, height, resolvedDpi);
 +        } catch (Exception e) {
-+            Ln.e("VirtualDisplayRegistry: failed to resize virtual display id=" + displayId, e);
++            Ln.e("Daemon: failed to resize virtual display id=" + displayId, e);
 +            return false;
 +        }
 +    }
@@ -369,7 +369,7 @@ index 00000000..d65ce54e
 +                return info.getDpi();
 +            }
 +        } catch (Throwable t) {
-+            Ln.w("VirtualDisplayRegistry: failed to query DPI from DisplayInfo for displayId=" + displayId, t);
++            Ln.w("Daemon: failed to query DPI from DisplayInfo for displayId=" + displayId, t);
 +        }
 +        return dpi;
 +    }
@@ -378,7 +378,7 @@ index 00000000..d65ce54e
 +    private static boolean resizeOnly(int displayId, VirtualDisplay vd, int width, int height, int dpi,
 +                                      boolean hasExternalSurface) {
 +        vd.resize(width, height, dpi);
-+        Ln.i("VirtualDisplayRegistry: resized virtual display id=" + displayId + " to " + width + "x" + height
++        Ln.i("Daemon: resized virtual display id=" + displayId + " to " + width + "x" + height
 +                + "/" + dpi + (hasExternalSurface ? " (external surface, reader untouched)" : " (no reader)"));
 +        safeFreezeRotation(displayId);
 +        return true;
@@ -406,7 +406,7 @@ index 00000000..d65ce54e
 +            try {
 +                newReader.close();
 +            } catch (Exception ignore) {
-+                Ln.d("VirtualDisplayRegistry: failed to close newReader during resize failure cleanup: " + ignore.getMessage());
++                Ln.d("Daemon: failed to close newReader during resize failure cleanup: " + ignore.getMessage());
 +            }
 +            throw e;
 +        }
@@ -418,9 +418,9 @@ index 00000000..d65ce54e
 +                try {
 +                    newReader.close();
 +                } catch (Exception ignore) {
-+                    Ln.d("VirtualDisplayRegistry: failed to close newReader after concurrent release: " + ignore.getMessage());
++                    Ln.d("Daemon: failed to close newReader after concurrent release: " + ignore.getMessage());
 +                }
-+                Ln.w("VirtualDisplayRegistry: display id=" + displayId
++                Ln.w("Daemon: display id=" + displayId
 +                        + " released during resize; discarding new reader and aborting resize");
 +                return false;
 +            }
@@ -429,10 +429,10 @@ index 00000000..d65ce54e
 +        try {
 +            oldReader.close();
 +        } catch (Exception ignore) {
-+            Ln.d("VirtualDisplayRegistry: failed to close oldReader after atomic swap: " + ignore.getMessage());
++            Ln.d("Daemon: failed to close oldReader after atomic swap: " + ignore.getMessage());
 +        }
 +
-+        Ln.i("VirtualDisplayRegistry: resized virtual display id=" + displayId + " to " + width + "x" + height
++        Ln.i("Daemon: resized virtual display id=" + displayId + " to " + width + "x" + height
 +                + "/" + dpi + " (reader swapped atomically)");
 +        return true;
 +    }
@@ -487,10 +487,10 @@ index 00000000..d65ce54e
 +                    );
 +                    result.add(enrichedInfo);
 +                } else {
-+                    Ln.w("VirtualDisplayRegistry: getDisplayInfo returned null for displayId=" + id);
++                    Ln.w("Daemon: getDisplayInfo returned null for displayId=" + id);
 +                }
 +            } catch (Throwable t) {
-+                Ln.w("VirtualDisplayRegistry: failed to query DisplayInfo for displayId=" + id, t);
++                Ln.w("Daemon: failed to query DisplayInfo for displayId=" + id, t);
 +            }
 +        }
 +        return result.toArray(new DisplayInfo[0]);
@@ -508,6 +508,6 @@ index 00000000..d65ce54e
 +        for (int id : ids) {
 +            releaseVirtualDisplay(id);
 +        }
-+        Ln.i("VirtualDisplayRegistry: all virtual displays released");
++        Ln.i("Daemon: all virtual displays released");
 +    }
 +}

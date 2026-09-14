@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..a63fe21f
+index 00000000..13484855
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,341 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -11,6 +11,7 @@ index 00000000..a63fe21f
 +import com.genymobile.scrcpy.control.DeviceMessage;
 +import com.genymobile.scrcpy.control.DeviceMessageSender;
 +import com.genymobile.scrcpy.daemon.core.DaemonExitCoordinator;
++import com.genymobile.scrcpy.daemon.core.DaemonLog;
 +import com.genymobile.scrcpy.daemon.core.SessionConfigurator;
 +import com.genymobile.scrcpy.daemon.display.ActivityLauncher;
 +import com.genymobile.scrcpy.daemon.display.AppLister;
@@ -54,6 +55,7 @@ index 00000000..a63fe21f
 +
 +    private final DeviceMessageSender sender;
 +    private final int sessionId;
++    private final String tag;
 +    private final VirtualDisplayRegistry registry;
 +    private final DaemonExitCoordinator exitCoordinator;
 +    private final RotationController rotationController;
@@ -103,6 +105,7 @@ index 00000000..a63fe21f
 +        this.sessionConfigurator = sessionConfigurator;
 +        this.broadcasterRegistry = broadcasterRegistry;
 +        this.sessionId = sessionId;
++        this.tag = DaemonLog.tag(sessionId);
 +        initRegistry();
 +    }
 +
@@ -161,7 +164,7 @@ index 00000000..a63fe21f
 +            }
 +            // 踢一下共享 broadcaster 的 encoder，使其按新尺寸重建；所有订阅者会从
 +            // encoder 的重置路径收到新的 session meta。
-+            Ln.i("DaemonCommandHandler: resize displayId=" + displayId
++            Ln.i(tag + ": resize displayId=" + displayId
 +                    + " — requesting shared broadcaster reset for new size "
 +                    + dto.getWidth() + "x" + dto.getHeight());
 +            broadcasterRegistry.kick(displayId,
@@ -252,7 +255,7 @@ index 00000000..a63fe21f
 +
 +    private void initMiscCommands() {
 +        register(DaemonMessages.TYPE_EXIT_DAEMON, ExecutionPolicy.FAST, (msg, sender) -> {
-+            Ln.i("handleExitDaemon: Quit request received, replying OK and shutting down...");
++            Ln.i(tag + ": exit daemon requested, replying OK and shutting down");
 +            sendSuccessResponse(msg, -1, "OK");
 +
 +            // 在专用 exitExecutor（不被 close() 关闭）上执行，使 daemon 一定能走到
@@ -263,12 +266,12 @@ index 00000000..a63fe21f
 +                if (sender != null) {
 +                    try {
 +                        if (!sender.awaitDrained(EXIT_DRAIN_TIMEOUT_MS)) {
-+                            Ln.w("handleExitDaemon: OK reply not flushed within " + EXIT_DRAIN_TIMEOUT_MS
++                            Ln.w(tag + ": OK reply not flushed within " + EXIT_DRAIN_TIMEOUT_MS
 +                                    + "ms; exiting anyway");
 +                        }
 +                    } catch (InterruptedException e) {
 +                        Thread.currentThread().interrupt();
-+                        Ln.w("handleExitDaemon: interrupted while waiting for the reply to flush; exiting anyway");
++                        Ln.w(tag + ": interrupted while waiting for the reply to flush; exiting anyway");
 +                    }
 +                }
 +                exitCoordinator.requestExit();
@@ -292,7 +295,7 @@ index 00000000..a63fe21f
 +            try {
 +                entry.handler.handle(msg, sender);
 +            } catch (Throwable t) {
-+                Ln.e("Execution of command type=" + msg.getType() + " failed", t);
++                Ln.e(tag + ": execution of command type=" + msg.getType() + " failed", t);
 +                sendErrorResponse(msg, t);
 +            }
 +        };
@@ -306,7 +309,7 @@ index 00000000..a63fe21f
 +                lifecycleExecutor.submit(task);
 +            }
 +        } catch (RejectedExecutionException e) {
-+            Ln.w("DaemonCommandHandler: executor rejected message type=" + msg.getType() + " (shutting down?)");
++            Ln.w(tag + ": executor rejected message type=" + msg.getType() + " (shutting down?)");
 +            sendErrorResponse(msg, new IllegalStateException("daemon is shutting down"));
 +        }
 +        return true;

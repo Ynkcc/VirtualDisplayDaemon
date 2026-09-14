@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/InstanceMutex.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/InstanceMutex.java
 new file mode 100644
-index 00000000..d50c8e13
+index 00000000..4da7d3fd
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/InstanceMutex.java
 @@ -0,0 +1,46 @@
@@ -35,16 +35,16 @@ index 00000000..d50c8e13
 +        } catch (IOException e) {
 +            throw new IOException("another daemon instance is already running (mutex socket '" + name + "' is held)", e);
 +        }
-+        Ln.i("InstanceMutex acquired: '" + name + "'");
++        Ln.i("Daemon: acquired: '" + name + "'");
 +    }
 +
 +    public static synchronized void release() {
 +        if (socket != null) {
 +            try {
 +                socket.close();
-+                Ln.i("InstanceMutex released");
++                Ln.i("Daemon: released");
 +            } catch (IOException e) {
-+                Ln.w("InstanceMutex: failed to close mutex socket: " + e.getMessage());
++                Ln.w("Daemon: failed to close mutex socket: " + e.getMessage());
 +            }
 +            socket = null;
 +        }

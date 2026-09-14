@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..18bcae33
+index 00000000..20ac6b8b
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 @@ -0,0 +1,214 @@
@@ -77,14 +77,14 @@ index 00000000..18bcae33
 +                created = true;
 +            }
 +            if (!created) {
-+                Ln.w("FrameBroadcasterRegistry: session " + sessionId + " reused the running broadcaster for"
++                Ln.w("Daemon: session " + sessionId + " reused the running broadcaster for"
 +                        + " displayId=" + displayId + " — its options are ignored (first subscriber's options apply)");
 +            }
 +            acquireRef(displayId, sessionId);
 +            // 在锁内 subscribe，使其相对并发的 releaseSubscriber 原子（否则后者可能在
 +            // get() 与 subscribe() 之间关掉 broadcaster）。
 +            VideoSubscriber sub = b.subscribe(sessionId, videoFd);
-+            Ln.i("FrameBroadcasterRegistry: session " + sessionId + " subscribed to displayId=" + displayId
++            Ln.i("Daemon: session " + sessionId + " subscribed to displayId=" + displayId
 +                    + " (created=" + created + ", subscribers=" + b.subscriberCount() + ")");
 +            return sub;
 +        }
@@ -147,7 +147,7 @@ index 00000000..18bcae33
 +            b.shutdown();
 +        }
 +        if (!affected.isEmpty()) {
-+            Ln.i("FrameBroadcasterRegistry: released session " + sessionId
++            Ln.i("Daemon: released session " + sessionId
 +                    + " subscribers on displayIds=" + affected
 +                    + (!toShutdown.isEmpty() ? " (broadcasters shut down)" : ""));
 +        }
@@ -182,7 +182,7 @@ index 00000000..18bcae33
 +        }
 +        if (toShutdown != null) {
 +            toShutdown.shutdown();
-+            Ln.i("FrameBroadcasterRegistry: released broadcaster for displayId=" + displayId + " (display destroyed)");
++            Ln.i("Daemon: released broadcaster for displayId=" + displayId + " (display destroyed)");
 +        }
 +    }
 +
@@ -199,7 +199,7 @@ index 00000000..18bcae33
 +        if (b != null) {
 +            b.kick(resetReasons);
 +        } else {
-+            Ln.w("FrameBroadcasterRegistry: kick for displayId=" + displayId
++            Ln.w("Daemon: kick for displayId=" + displayId
 +                    + " — no active broadcaster (nothing to reset)");
 +        }
 +    }
@@ -215,6 +215,6 @@ index 00000000..18bcae33
 +        for (FrameBroadcaster b : all) {
 +            b.shutdown();
 +        }
-+        Ln.i("FrameBroadcasterRegistry: released all broadcasters (" + all.size() + ")");
++        Ln.i("Daemon: released all broadcasters (" + all.size() + ")");
 +    }
 +}

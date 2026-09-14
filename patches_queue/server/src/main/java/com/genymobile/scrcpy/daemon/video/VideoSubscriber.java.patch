@@ -1,11 +1,12 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
 new file mode 100644
-index 00000000..6e4e821c
+index 00000000..aead7df0
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,180 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
++import com.genymobile.scrcpy.daemon.core.DaemonLog;
 +import com.genymobile.scrcpy.device.Streamer;
 +import com.genymobile.scrcpy.util.IO;
 +import com.genymobile.scrcpy.util.Ln;
@@ -23,6 +24,7 @@ index 00000000..6e4e821c
 +    static final int QUEUE_CAPACITY = 30;
 +
 +    private final int sessionId;
++    private final String tag;
 +    private final Streamer streamer;
 +    private final LinkedBlockingQueue<Frame> queue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
 +    // 保护 queue 的多步操作（offer + 淘汰、drainTo）。writeLoop 的 poll 本身原子，无需锁。
@@ -37,6 +39,7 @@ index 00000000..6e4e821c
 +
 +    VideoSubscriber(int sessionId, Streamer streamer) {
 +        this.sessionId = sessionId;
++        this.tag = DaemonLog.tag(sessionId);
 +        this.streamer = streamer;
 +    }
 +
@@ -79,14 +82,14 @@ index 00000000..6e4e821c
 +                return;
 +            }
 +            if (!evictOldestDroppable()) {
-+                Ln.w("VideoSubscriber[" + sessionId + "]: queue full and no droppable frame "
++                Ln.w(tag + ": queue full and no droppable frame "
 +                        + "(would lose a keyframe) — closing slow subscriber");
 +                closeLocked();
 +                frame.release();
 +                return;
 +            }
 +            if (!queue.offer(frame)) {
-+                Ln.w("VideoSubscriber[" + sessionId + "]: offer failed post-eviction — dropping frame " + frame);
++                Ln.w(tag + ": offer failed post-eviction — dropping frame " + frame);
 +                frame.release();
 +            }
 +        }
@@ -140,12 +143,12 @@ index 00000000..6e4e821c
 +                    streamer.writePacket(buf, f.pts, f.config, f.keyFrame);
 +                    break;
 +                default:
-+                    Ln.w("VideoSubscriber[" + sessionId + "]: unknown frame kind " + f.kind);
++                    Ln.w(tag + ": unknown frame kind " + f.kind);
 +                    break;
 +            }
 +        } catch (IOException e) {
 +            if (!IO.isBrokenPipe(e)) {
-+                Ln.w("VideoSubscriber[" + sessionId + "]: write error: " + e.getMessage());
++                Ln.w(tag + ": write error: " + e.getMessage());
 +            }
 +            alive.set(false);
 +            notifyDeath();

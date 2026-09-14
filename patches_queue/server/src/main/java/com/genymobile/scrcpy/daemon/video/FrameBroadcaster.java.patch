@@ -1,13 +1,14 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..2dc3c424
+index 00000000..8fd4f3bc
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
-@@ -0,0 +1,350 @@
+@@ -0,0 +1,353 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
++import com.genymobile.scrcpy.daemon.core.DaemonLog;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
 +import com.genymobile.scrcpy.device.Streamer;
 +import com.genymobile.scrcpy.model.Codec;
@@ -30,6 +31,7 @@ index 00000000..2dc3c424
 +final class FrameBroadcaster implements FrameSink {
 +
 +    private final int displayId;
++    private final String tag;
 +    private final DisplaySurfaceBroker surfaceBroker;
 +    private final Codec codec;
 +    private final boolean sendStreamMeta;
@@ -53,6 +55,7 @@ index 00000000..2dc3c424
 +
 +    private FrameBroadcaster(int displayId, DisplaySurfaceBroker broker, Options options) {
 +        this.displayId = displayId;
++        this.tag = DaemonLog.tagDisplay(displayId);
 +        this.surfaceBroker = broker;
 +        this.codec = options.getVideoCodec();
 +        this.sendStreamMeta = options.getSendStreamMeta();
@@ -71,7 +74,7 @@ index 00000000..2dc3c424
 +            b.vdListenerProxy.setDelegate(controller);
 +        }
 +        b.startEncodeThread();
-+        Ln.i("FrameBroadcaster[" + displayId + "]: created (codec=" + options.getVideoCodec()
++        Ln.i(DaemonLog.tagDisplay(displayId) + ": created (codec=" + options.getVideoCodec()
 +                + ", sendStreamMeta=" + options.getSendStreamMeta()
 +                + ", sendFrameMeta=" + options.getSendFrameMeta() + ")");
 +        return b;
@@ -84,7 +87,7 @@ index 00000000..2dc3c424
 +        encodeThread = new Thread(() -> {
 +            try {
 +                surfaceEncoder.start(fatalError -> {
-+                    Ln.i("FrameBroadcaster[" + displayId + "]: encoder terminated, fatal=" + fatalError);
++                    Ln.i(tag + ": encoder terminated, fatal=" + fatalError);
 +                    started.set(false);
 +                    if (fatalError) {
 +                        // The broadcaster is dead weight: without a running
@@ -110,7 +113,7 @@ index 00000000..2dc3c424
 +                Thread.currentThread().interrupt();
 +            } finally {
 +                started.set(false);
-+                Ln.i("FrameBroadcaster[" + displayId + "]: encode thread exited");
++                Ln.i(tag + ": encode thread exited");
 +            }
 +        }, "video-bcast-" + displayId);
 +        encodeThread.setDaemon(true);
@@ -147,7 +150,7 @@ index 00000000..2dc3c424
 +        if (surfaceEncoder != null) {
 +            surfaceEncoder.requestSyncFrame();
 +        }
-+        Ln.i("FrameBroadcaster[" + displayId + "]: subscriber " + sessionId
++        Ln.i(tag + ": subscriber " + sessionId
 +                + " added (count=" + subscriberCount() + ")");
 +        return sub;
 +    }
@@ -160,7 +163,7 @@ index 00000000..2dc3c424
 +            deregisterSubscriber(sub);
 +        }
 +        sub.close();
-+        Ln.i("FrameBroadcaster[" + displayId + "]: subscriber " + sub.getSessionId()
++        Ln.i(tag + ": subscriber " + sub.getSessionId()
 +                + " removed (count=" + subscriberCount() + ")");
 +    }
 +
@@ -195,7 +198,7 @@ index 00000000..2dc3c424
 +            CaptureControl cc = surfaceCapture.getCaptureControl();
 +            if (cc != null) {
 +                cc.reset(resetReasons);
-+                Ln.i("FrameBroadcaster[" + displayId + "]: kicked encoder (reasons=0x"
++                Ln.i(tag + ": kicked encoder (reasons=0x"
 +                        + Integer.toHexString(resetReasons) + ")");
 +            }
 +        }
@@ -205,7 +208,7 @@ index 00000000..2dc3c424
 +        if (!shutdown.compareAndSet(false, true)) {
 +            return;
 +        }
-+        Ln.i("FrameBroadcaster[" + displayId + "]: shutting down (last subscriber gone)");
++        Ln.i(tag + ": shutting down (last subscriber gone)");
 +        if (surfaceEncoder != null) {
 +            surfaceEncoder.stop();
 +        }
@@ -223,7 +226,7 @@ index 00000000..2dc3c424
 +            try {
 +                surfaceBroker.restore(displayId);
 +            } catch (Throwable t) {
-+                Ln.w("FrameBroadcaster[" + displayId + "]: failed to restore fallback surface", t);
++                Ln.w(tag + ": failed to restore fallback surface", t);
 +            }
 +        }
 +        synchronized (lock) {
@@ -314,7 +317,7 @@ index 00000000..2dc3c424
 +        while (it.hasNext()) {
 +            VideoSubscriber sub = it.next();
 +            if (!sub.isAlive()) {
-+                Ln.i("FrameBroadcaster[" + displayId + "]: reaping dead subscriber " + sub.getSessionId());
++                Ln.i(tag + ": reaping dead subscriber " + sub.getSessionId());
 +                reap(it, sub);
 +                continue;
 +            }
