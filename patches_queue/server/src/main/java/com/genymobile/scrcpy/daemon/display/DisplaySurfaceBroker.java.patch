@@ -1,14 +1,16 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/DisplaySurfaceBroker.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/DisplaySurfaceBroker.java
 new file mode 100644
-index 00000000..93f7abb2
+index 00000000..a4a806ab
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/DisplaySurfaceBroker.java
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,44 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.video.ExternalDisplayProvider;
 +import android.hardware.display.VirtualDisplay;
 +import android.view.Surface;
++
++import com.genymobile.scrcpy.model.Size;
 +
 +public final class DisplaySurfaceBroker implements ExternalDisplayProvider {
 +
@@ -34,5 +36,15 @@ index 00000000..93f7abb2
 +    @Override
 +    public void markExternalSurface(int displayId, Surface surface) {
 +        registry.markExternalSurface(displayId, surface);
++    }
++
++    @Override
++    public Size getBoundedSize(int displayId) {
++        return registry.getBoundedSize(displayId);
++    }
++
++    @Override
++    public void setBoundedSize(int displayId, Size size) {
++        registry.setBoundedSize(displayId, size);
 +    }
 +}

@@ -1,13 +1,15 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java b/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java
 new file mode 100644
-index 00000000..628a6ef5
+index 00000000..7d50d0b4
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ExternalDisplayProvider.java
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,34 @@
 +package com.genymobile.scrcpy.video;
 +
 +import android.hardware.display.VirtualDisplay;
 +import android.view.Surface;
++
++import com.genymobile.scrcpy.model.Size;
 +
 +public interface ExternalDisplayProvider {
 +    VirtualDisplay get(int displayId);
@@ -21,5 +23,18 @@ index 00000000..628a6ef5
 +     */
 +    default void markExternalSurface(int displayId, Surface surface) {
 +        // Default no-op for providers that do not track surfaces.
++    }
++
++    /**
++     * Size the display was last actually resized to, or null when unknown. Long-lived
++     * (per-display) cache: lets callers skip resize on session rebind when the size is
++     * already current. Default no-op for providers that do not track sizes.
++     */
++    default Size getBoundedSize(int displayId) {
++        return null;
++    }
++
++    default void setBoundedSize(int displayId, Size size) {
++        // Default no-op for providers that do not track sizes.
 +    }
 +}

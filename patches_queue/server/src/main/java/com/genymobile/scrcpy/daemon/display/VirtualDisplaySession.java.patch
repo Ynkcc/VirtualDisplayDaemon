@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java
 new file mode 100644
-index 00000000..df9f6308
+index 00000000..e7f42db0
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplaySession.java
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,154 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -12,6 +12,8 @@ index 00000000..df9f6308
 +import android.media.ImageReader;
 +import android.os.HandlerThread;
 +import android.view.Surface;
++
++import com.genymobile.scrcpy.model.Size;
 +
 +public final class VirtualDisplaySession implements AutoCloseable {
 +
@@ -23,6 +25,10 @@ index 00000000..df9f6308
 +    
 +    private ImageReader imageReader;
 +    private Surface externalSurface;
++    // 最近一次实际 resize 到的尺寸。长寿命缓存：ScreenCapture 每次重绑时用它在
++    // 尺寸未变时跳过 resize（per-stream 缓存会导致每次重绑都真实 resize，
++    // 高频重绑时对 system_server 输入管线造成扰动）。
++    private Size boundedSize;
 +
 +    public VirtualDisplaySession(int displayId, String name, VirtualDisplay virtualDisplay, 
 +                                 ImageReader imageReader, HandlerThread readerThread) {
@@ -69,6 +75,14 @@ index 00000000..df9f6308
 +
 +    public synchronized Surface getExternalSurface() {
 +        return externalSurface;
++    }
++
++    public synchronized Size getBoundedSize() {
++        return boundedSize;
++    }
++
++    public synchronized void setBoundedSize(Size size) {
++        this.boundedSize = size;
 +    }
 +
 +    public synchronized void setExternalSurface(Surface surface) {

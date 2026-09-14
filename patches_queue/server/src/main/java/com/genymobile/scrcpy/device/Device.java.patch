@@ -1,14 +1,67 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/device/Device.java b/server/src/main/java/com/genymobile/scrcpy/device/Device.java
-index 615675a1..bcb9c977 100644
+index 615675a1..cb7b8b64 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/device/Device.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/device/Device.java
-@@ -64,7 +64,8 @@ public final class Device {
+@@ -59,16 +59,60 @@ public final class Device {
+         return displayId == 0 || Build.VERSION.SDK_INT >= AndroidVersions.API_29_ANDROID_10;
+     }
+ 
++    // —— VD 触摸注入楔死检测 ——
++    // system_server 的 InputDispatcher 状态可能在长时间高频 VD 增删后劣化：之后所有
++    // 虚拟屏上的触摸注入被静默拒绝（INJECTION_FAILED，系统日志可见 "Input event
++    // injection from pid ... failed"），按键注入不受影响，且仅 daemon 进程重启可恢复
++    // （重建 VD 实例无效）。窗口期内连续失败达到阈值即判定楔死，留痕后退出进程，
++    // 由 app 侧 ensureDaemonAlive() 在重连时重新拉起 daemon 以恢复输入。
++    private static final int WEDGE_FAILURE_THRESHOLD = 20;
++    private static final long WEDGE_FAILURE_WINDOW_MS = 10_000;
++    private static final Object wedgeLock = new Object();
++    private static int wedgeFailureCount;
++    private static long wedgeFirstFailureAt;
++
+     public static boolean injectEvent(InputEvent inputEvent, int displayId, int injectMode) {
+         if (!supportsInputEvents(displayId)) {
              throw new AssertionError("Could not inject input event if !supportsInputEvents()");
          }
  
 -        if (displayId != 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
 +        // 允许向除 0 号物理屏幕外的任何非负屏幕（如 daemon 创建的虚拟屏幕）注入输入事件
 +        if (displayId >= 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
++            trackInjectionResult(false, displayId);
              return false;
          }
  
+-        return ServiceManager.getInputManager().injectInputEvent(inputEvent, injectMode);
++        boolean injected = ServiceManager.getInputManager().injectInputEvent(inputEvent, injectMode);
++        trackInjectionResult(injected, displayId);
++        return injected;
++    }
++
++    private static void trackInjectionResult(boolean injected, int displayId) {
++        if (displayId <= 0) {
++            // 楔死仅影响 daemon 创建的虚拟屏
++            return;
++        }
++        synchronized (wedgeLock) {
++            long now = SystemClock.elapsedRealtime();
++            if (injected) {
++                wedgeFailureCount = 0;
++                return;
++            }
++            if (wedgeFailureCount == 0 || now - wedgeFirstFailureAt > WEDGE_FAILURE_WINDOW_MS) {
++                wedgeFirstFailureAt = now;
++                wedgeFailureCount = 1;
++                Ln.w("Input event injection failed to displayId=" + displayId);
++                return;
++            }
++            wedgeFailureCount++;
++            if (wedgeFailureCount >= WEDGE_FAILURE_THRESHOLD) {
++                Ln.e("Virtual display input appears wedged: " + wedgeFailureCount
++                        + " injection failures on displayId=" + displayId
++                        + " within " + WEDGE_FAILURE_WINDOW_MS + "ms; restarting daemon to recover"
++                        + " (system_server rejects touch injection; see 'Input event injection ... failed' in system log)");
++                System.exit(1);
++            }
++        }
+     }
+ 
+     public static boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int displayId, int injectMode) {

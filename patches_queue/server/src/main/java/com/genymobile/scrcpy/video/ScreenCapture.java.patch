@@ -1,8 +1,8 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-index 0768181a..370242b9 100644
+index 0768181a..0c588ec8 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-@@ -31,12 +31,38 @@ import java.util.Locale;
+@@ -31,12 +31,35 @@ import java.util.Locale;
  public class ScreenCapture extends SurfaceCapture {
  
      private final VirtualDisplayListener vdListener;
@@ -16,9 +16,6 @@ index 0768181a..370242b9 100644
 +    private boolean isDaemonManaged;
 +
 +    private ExternalDisplayProvider externalDisplayProvider;
-+
-+    /** Size the daemon virtual display was last resized/bound to (null = never). */
-+    private Size daemonVdBoundedSize;
 +
 +    public void setExternalDisplayProvider(ExternalDisplayProvider provider) {
 +        this.externalDisplayProvider = provider;
@@ -42,7 +39,7 @@ index 0768181a..370242b9 100644
      private VideoConstraints videoConstraints;
  
      private DisplayInfo displayInfo;
-@@ -111,10 +137,15 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -111,10 +134,15 @@ public class ScreenCapture extends SurfaceCapture {
              SurfaceControl.destroyDisplay(display);
              display = null;
          }
@@ -59,7 +56,7 @@ index 0768181a..370242b9 100644
  
          Size inputSize;
          if (transform != null) {
-@@ -132,46 +163,124 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -132,46 +160,128 @@ public class ScreenCapture extends SurfaceCapture {
          try {
              virtualDisplay = ServiceManager.getDisplayManager()
                      .createVirtualDisplay("scrcpy", inputSize.getWidth(), inputSize.getHeight(), displayId, surface);
@@ -175,11 +172,15 @@ index 0768181a..370242b9 100644
 +            // display rotation is baked into the composed output buffer and the video
 +            // stream stays self-consistent with videoSize/PositionMapper. The daemon
 +            // VD is long-lived and its size is frozen at creation time, so resize it
-+            // to the current logical size before binding instead.
++            // to the current logical size before binding instead. The "last resized
++            // size" cache lives on the long-lived display session (via the provider),
++            // so a session rebind with unchanged size performs no resize at all —
++            // repeated real resizes on every rebind churn system_server's input
++            // pipeline and are the suspected trigger of the touch-wedge degradation.
 +            Size displaySize = displayInfo != null ? displayInfo.getSize() : null;
-+            if (displaySize != null && !displaySize.equals(daemonVdBoundedSize)) {
++            if (displaySize != null && !displaySize.equals(externalDisplayProvider.getBoundedSize(displayId))) {
 +                daemonVD.resize(displaySize.getWidth(), displaySize.getHeight(), displayInfo.getDpi());
-+                daemonVdBoundedSize = displaySize;
++                externalDisplayProvider.setBoundedSize(displayId, displaySize);
 +                Ln.i("ScreenCapture: daemon virtual display resized to "
 +                        + displaySize.getWidth() + "x" + displaySize.getHeight());
 +            }
@@ -216,7 +217,7 @@ index 0768181a..370242b9 100644
      }
  
      @Override
-@@ -180,6 +289,9 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -180,6 +290,9 @@ public class ScreenCapture extends SurfaceCapture {
              glRunner.stopAndRelease();
              glRunner = null;
          }
@@ -226,7 +227,7 @@ index 0768181a..370242b9 100644
      }
  
      @Override
-@@ -191,9 +303,15 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -191,8 +304,13 @@ public class ScreenCapture extends SurfaceCapture {
              display = null;
          }
          if (virtualDisplay != null) {
@@ -239,7 +240,5 @@ index 0768181a..370242b9 100644
              virtualDisplay = null;
 +            isDaemonManaged = false;
          }
-+        daemonVdBoundedSize = null;
      }
  
-     @Override

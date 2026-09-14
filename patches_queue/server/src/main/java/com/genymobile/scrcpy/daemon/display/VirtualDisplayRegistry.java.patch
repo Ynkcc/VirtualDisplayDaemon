@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..7cf81b8d
+index 00000000..b1e462b3
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,512 @@
+@@ -0,0 +1,537 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -17,6 +17,8 @@ index 00000000..7cf81b8d
 +import android.os.Handler;
 +import android.os.HandlerThread;
 +import android.view.Surface;
++
++import com.genymobile.scrcpy.model.Size;
 +
 +import java.util.ArrayList;
 +import java.util.HashMap;
@@ -325,6 +327,23 @@ index 00000000..7cf81b8d
 +        session.setExternalSurface(surface);
 +    }
 +
++    /** 最近一次实际 resize 到的尺寸；无会话时返回 null。 */
++    public Size getBoundedSize(int displayId) {
++        synchronized (lock) {
++            VirtualDisplaySession session = activeSessions.get(displayId);
++            return session != null ? session.getBoundedSize() : null;
++        }
++    }
++
++    public void setBoundedSize(int displayId, Size size) {
++        synchronized (lock) {
++            VirtualDisplaySession session = activeSessions.get(displayId);
++            if (session != null) {
++                session.setBoundedSize(size);
++            }
++        }
++    }
++
 +    public boolean resizeVirtualDisplay(int displayId, int width, int height, int dpi) {
 +        // Hold the registry lock only for snapshot/commit, never across binder
 +        // calls (vd.resize / freezeRotation / ImageReader creation). Blocking
@@ -348,10 +367,16 @@ index 00000000..7cf81b8d
 +
 +            boolean hasExternalSurface = session.getExternalSurface() != null;
 +            boolean hasReader = session.getImageReader() != null && session.getReaderThread() != null;
++            boolean ok;
 +            if (hasExternalSurface || !hasReader) {
-+                return resizeOnly(displayId, vd, width, height, resolvedDpi, hasExternalSurface);
++                ok = resizeOnly(displayId, vd, width, height, resolvedDpi, hasExternalSurface);
++            } else {
++                ok = resizeWithReaderSwap(displayId, session, vd, width, height, resolvedDpi);
 +            }
-+            return resizeWithReaderSwap(displayId, session, vd, width, height, resolvedDpi);
++            if (ok) {
++                session.setBoundedSize(new Size(width, height));
++            }
++            return ok;
 +        } catch (Exception e) {
 +            Ln.e("Daemon: failed to resize virtual display id=" + displayId, e);
 +            return false;
