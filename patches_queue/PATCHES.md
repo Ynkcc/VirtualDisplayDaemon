@@ -103,7 +103,7 @@
 | `control/ControlChannel.java.patch` | `control/ControlChannel.java` | 构造函数改为 `InputStream`/`OutputStream` |
 | `control/ControlMessage.java.patch` | `control/ControlMessage.java` | 新增 `extensionPayload` 字段 + `implements ExtensionCarrier` |
 | `control/ControlMessageReader.java.patch` | `control/ControlMessageReader.java` | → `DaemonControlMessageReader`（新增） |
-| `control/Controller.java.patch` | `control/Controller.java` | → `ControlMessageExtension`（新增）、`mirrorDisplayId` |
+| `control/Controller.java.patch` | `control/Controller.java` | → `ControlMessageExtension`（新增）、`mirrorSourceDisplayId`（输入注入统一走 `injectionDisplayIdFor`） |
 | `control/DeviceMessage.java.patch` | `control/DeviceMessage.java` | 新增 `extensionPayload` + `createEmpty()` + `implements ExtensionCarrier` |
 | `control/DeviceMessageSender.java.patch` | `control/DeviceMessageSender.java` | 队列 16→64 |
 | `control/DeviceMessageWriter.java.patch` | `control/DeviceMessageWriter.java` | → `DaemonDeviceMessageWriter`（新增） |

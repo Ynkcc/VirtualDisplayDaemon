@@ -1,17 +1,17 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
-index 55d6e11b..820f9d63 100644
+index 55d6e11b..b63ff112 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 @@ -87,6 +87,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
  
      private final boolean camera;
      private final int displayId;
-+    private final int mirrorDisplayId;
++    private final int mirrorSourceDisplayId;
 +    // Mirror displays can be destroyed while the Controller is alive (the id is
 +    // resolved once at construction). Cache liveness lazily and re-validate on
 +    // every capture rebind so events stop being injected into a dead display.
-+    private volatile boolean mirrorDisplayValidated;
-+    private volatile boolean mirrorDisplayAlive = true;
++    private volatile boolean mirrorSourceValidated;
++    private volatile boolean mirrorSourceAlive = true;
      private final boolean supportsInputEvents;
      private final ControlChannel controlChannel;
      private final CleanUp cleanUp;
@@ -48,7 +48,7 @@ index 55d6e11b..820f9d63 100644
 +        this(controlChannel, cleanUp, options, displayId, -1);
 +    }
 +
-+    public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options, int displayId, int mirrorDisplayId) {
++    public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options, int displayId, int mirrorSourceDisplayId) {
          this.camera = options.getVideoSource() == VideoSource.CAMERA;
          this.controlChannel = controlChannel;
          this.cleanUp = cleanUp;
@@ -56,7 +56,7 @@ index 55d6e11b..820f9d63 100644
          if (this.camera) {
              // Unused for camera
              this.displayId = Device.DISPLAY_ID_NONE;
-+            this.mirrorDisplayId = -1;
++            this.mirrorSourceDisplayId = -1;
              this.supportsInputEvents = false;
              this.sender = null;
              this.clipboardAutosync = false;
@@ -66,7 +66,7 @@ index 55d6e11b..820f9d63 100644
  
 -        this.displayId = options.getDisplayId();
 +        this.displayId = displayId;
-+        this.mirrorDisplayId = mirrorDisplayId;
++        this.mirrorSourceDisplayId = mirrorSourceDisplayId;
  
          this.clipboardAutosync = options.getClipboardAutosync();
          this.powerOn = options.getPowerOn();
@@ -85,7 +85,7 @@ index 55d6e11b..820f9d63 100644
      public void onNewVirtualDisplay(int virtualDisplayId, PositionMapper positionMapper) {
 +        // Capture rebind: the display topology may have changed since the last
 +        // check, so the cached mirror liveness must be re-validated.
-+        mirrorDisplayValidated = false;
++        mirrorSourceValidated = false;
          DisplayData data = new DisplayData(virtualDisplayId, positionMapper);
          DisplayData old = this.displayData.getAndSet(data);
          if (old == null) {
@@ -119,47 +119,58 @@ index 55d6e11b..820f9d63 100644
                  }
                  return null;
              }
-@@ -506,6 +544,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -506,7 +544,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              targetDisplayId = displayId;
          }
  
-+        if (mirrorDisplayId >= 0 && isMirrorDisplayAlive()) {
-+            targetDisplayId = mirrorDisplayId;
-+        }
-+
-         return Pair.create(point, targetDisplayId);
+-        return Pair.create(point, targetDisplayId);
++        return Pair.create(point, injectionDisplayIdFor(targetDisplayId));
      }
  
-@@ -748,6 +790,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+     private boolean injectTouch(int action, long pointerId, Position position, float pressure, int actionButton, int buttons) {
+@@ -748,18 +786,35 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private int getActionDisplayId() {
-+        if (mirrorDisplayId >= 0 && isMirrorDisplayAlive()) {
-+            return mirrorDisplayId;
-+        }
++        int eventOwnerDisplayId;
          if (displayId != Device.DISPLAY_ID_NONE) {
              // Real screen mirrored, use the source display id
-             return displayId;
-@@ -762,6 +807,18 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
-         return data.virtualDisplayId;
-     }
+-            return displayId;
++            eventOwnerDisplayId = displayId;
++        } else {
++            // Virtual display created by --new-display, use the virtualDisplayId
++            DisplayData data = displayData.get();
++            eventOwnerDisplayId = data != null ? data.virtualDisplayId : Device.DISPLAY_ID_NONE;
+         }
++        return injectionDisplayIdFor(eventOwnerDisplayId);
++    }
  
-+    private boolean isMirrorDisplayAlive() {
-+        if (!mirrorDisplayValidated) {
-+            mirrorDisplayAlive = ServiceManager.getDisplayManager().getDisplayInfo(mirrorDisplayId) != null;
-+            mirrorDisplayValidated = true;
-+            if (!mirrorDisplayAlive) {
-+                Ln.e("Mirror display id=" + mirrorDisplayId
+-        // Virtual display created by --new-display, use the virtualDisplayId
+-        DisplayData data = displayData.get();
+-        if (data == null) {
+-            return Device.DISPLAY_ID_NONE;
++    private int injectionDisplayIdFor(int eventOwnerDisplayId) {
++        if (mirrorSourceDisplayId >= 0 && isMirrorSourceAlive()) {
++            return mirrorSourceDisplayId;
+         }
++        return eventOwnerDisplayId;
++    }
+ 
+-        return data.virtualDisplayId;
++    private boolean isMirrorSourceAlive() {
++        if (!mirrorSourceValidated) {
++            mirrorSourceAlive = ServiceManager.getDisplayManager().getDisplayInfo(mirrorSourceDisplayId) != null;
++            mirrorSourceValidated = true;
++            if (!mirrorSourceAlive) {
++                Ln.e("Mirror source display id=" + mirrorSourceDisplayId
 +                        + " no longer exists; input events will fall back to displayId=" + displayId);
 +            }
 +        }
-+        return mirrorDisplayAlive;
-+    }
-+
++        return mirrorSourceAlive;
+     }
+ 
      private void startAppAsync(String name) {
-         if (startAppExecutor == null) {
-             startAppExecutor = Executors.newSingleThreadExecutor();
-@@ -877,8 +934,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -877,8 +932,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private void resizeDisplay(int width, int height) {
