@@ -1,0 +1,33 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/Options.java b/server/src/main/java/com/genymobile/scrcpy/Options.java
+index 26a6ba9a..52ce0255 100644
+--- a/server/src/main/java/com/genymobile/scrcpy/Options.java
++++ b/server/src/main/java/com/genymobile/scrcpy/Options.java
+@@ -86,6 +86,7 @@ public class Options {
+     private boolean sendFrameMeta = true; // send PTS so that the client may record properly
+     private boolean sendDummyByte = true; // write a byte on start to detect connection issues
+     private boolean sendStreamMeta = true; // write the stream metadata (codec and session)
++    private boolean qualityTuning; // daemon-specific encoder quality tuning (CBR, High profile, operating rate)
+ 
+     public Ln.Level getLogLevel() {
+         return logLevel;
+@@ -319,6 +320,10 @@ public class Options {
+         return sendStreamMeta;
+     }
+ 
++    public boolean getQualityTuning() {
++        return qualityTuning;
++    }
++
+     @SuppressWarnings("MethodLength")
+     public static Options parse(String... args) {
+         if (args.length < 1) {
+@@ -483,6 +488,9 @@ public class Options {
+                 case "list_apps":
+                     options.listApps = Boolean.parseBoolean(value);
+                     break;
++                case "quality_tuning":
++                    options.qualityTuning = Boolean.parseBoolean(value);
++                    break;
+                 case "camera_id":
+                     if (!value.isEmpty()) {
+                         options.cameraId = value;

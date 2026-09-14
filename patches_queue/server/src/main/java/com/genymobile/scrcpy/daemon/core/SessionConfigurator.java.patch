@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionConfigurator.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionConfigurator.java
 new file mode 100644
-index 00000000..edc349de
+index 00000000..305eb636
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/SessionConfigurator.java
 @@ -0,0 +1,34 @@
@@ -33,8 +33,8 @@ index 00000000..edc349de
 +     * @param legacyRolesMask 兼容用的 3-bit role mask（bit0 video/bit1 audio/bit2 control），
 +     *                        0 表示未声明
 +     * @param rolesEntries    显式 (role, displayId) 声明；为空则回退到 mask
-+     * @throws Exception 选项非法或视频已启动
++     * @throws RuntimeException 会话已退出 / 已配置 / 视频已启动，或选项非法
 +     */
 +    void configure(String optionsKv, int legacyRolesMask,
-+                   List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) throws Exception;
++                   List<TcpDesktopConnection.RoleDisplayKey> rolesEntries);
 +}

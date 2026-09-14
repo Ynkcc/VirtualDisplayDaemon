@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
 new file mode 100644
-index 00000000..96d343c8
+index 00000000..e2170b91
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
 @@ -0,0 +1,480 @@
@@ -171,7 +171,7 @@ index 00000000..96d343c8
 +
 +    @Override
 +    public void configure(String optionsKv, int legacyRolesMask,
-+                          List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) throws Exception {
++                          List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) {
 +        if (exited.get() || phase == Phase.CLOSED) {
 +            throw new RuntimeException("Session already exited");
 +        }

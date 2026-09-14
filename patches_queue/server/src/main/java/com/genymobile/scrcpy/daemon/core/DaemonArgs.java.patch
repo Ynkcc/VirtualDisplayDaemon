@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonArgs.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonArgs.java
 new file mode 100644
-index 00000000..7bbb4bf4
+index 00000000..3399be14
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonArgs.java
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,170 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -98,6 +98,22 @@ index 00000000..7bbb4bf4
 +                "list_encoders", "list_displays", "list_cameras",
 +                "list_camera_sizes", "list_apps"));
 +        BLOCKED_CONFIGURE_KEYS = Collections.unmodifiableSet(blocked);
++    }
++
++    /**
++     * Inject {@code quality_tuning=true} unless the client set it explicitly, preserving the
++     * pre-option encoder tuning behaviour while keeping it overridable via CONFIGURE_SESSION.
++     */
++    public static String[] ensureQualityTuning(String[] args) {
++        for (String arg : args) {
++            if (arg.startsWith("quality_tuning=")) {
++                return args;
++            }
++        }
++        List<String> list = new ArrayList<>(args.length + 1);
++        Collections.addAll(list, args);
++        list.add("quality_tuning=true");
++        return list.toArray(new String[0]);
 +    }
 +
 +    /**

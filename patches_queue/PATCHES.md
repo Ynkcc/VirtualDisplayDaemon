@@ -3,7 +3,7 @@
 本目录保存 VirtualDisplay daemon 对 scrcpy 子模块 `server/` 的补丁集合。
 补丁路径前缀（`server/...`、`gradlew`）相对目标仓库根 **`daemon/scrcpy`**。
 
-共 **68 个补丁**：47 个新增文件（40 个 daemon 源码 + 7 个单元测试）+ 21 个修改上游文件。
+共 **69 个补丁**：47 个新增文件（40 个 daemon 源码 + 7 个单元测试）+ 22 个修改上游文件。
 
 > 应用工具：`../tools/apply_patches.sh`（逐补丁判定 APPLIED/CLEAN/CONFLICT，普通重跑即可
 > 修复缺失文件；`--force` 可先还原 baseline 再整体重放）、
@@ -91,7 +91,7 @@
 
 ---
 
-## 2. 修改上游文件（21 个）
+## 2. 修改上游文件（22 个）
 
 这些补丁在**现有 scrcpy 文件**上做增量修改，引用部分新增类。应在新增之后应用。
 
@@ -108,6 +108,7 @@
 | `control/DeviceMessageSender.java.patch` | `control/DeviceMessageSender.java` | 队列 16→64 |
 | `control/DeviceMessageWriter.java.patch` | `control/DeviceMessageWriter.java` | → `DaemonDeviceMessageWriter`（新增） |
 | `control/UhidManager.java.patch` | `control/UhidManager.java` | daemon 模式下的 UHID 适配 |
+| `Options.java.patch` | `Options.java` | 新增 `quality_tuning` 选项（默认 false，daemon 路径注入 true） |
 | `device/DesktopConnection.java.patch` | `device/DesktopConnection.java` | 适配 `ControlChannel` 新构造 |
 | `device/Device.java.patch` | `device/Device.java` | 输入注入支持 `displayId>=0` |
 | `device/Streamer.java.patch` | `device/Streamer.java` | `implements FrameSink`（新增） |
@@ -116,7 +117,7 @@
 | `Server.java.patch` | `Server.java` | → `DaemonServer`/`DaemonOptions`/`DaemonArgs`（新增） |
 | `video/CaptureControl.java.patch` | `video/CaptureControl.java` | `requestSyncFrame()` |
 | `video/ScreenCapture.java.patch` | `video/ScreenCapture.java` | → `ExternalDisplayProvider`（新增）、daemon 分支 |
-| `video/SurfaceEncoder.java.patch` | `video/SurfaceEncoder.java` | `Streamer`→`FrameSink`（新增） |
+| `video/SurfaceEncoder.java.patch` | `video/SurfaceEncoder.java` | `Streamer`→`FrameSink`（新增）；画质调优改为 `quality_tuning` 开关控制 |
 | `wrappers/DisplayManager.java.patch` | `wrappers/DisplayManager.java` | 反射健壮性、创建 VD 多分支 |
 
 ---

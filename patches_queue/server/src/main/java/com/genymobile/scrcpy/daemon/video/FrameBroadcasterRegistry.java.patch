@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..20ac6b8b
+index 00000000..86d3ea73
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,215 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -61,9 +61,10 @@ index 00000000..20ac6b8b
 +     */
 +    public VideoSubscriber acquireSubscriber(int displayId, int sessionId, FileDescriptor videoFd,
 +                                             Options options, String[] baseArgs, Controller controller) throws Exception {
-+        // Options.parse（含 display_id 改写）在锁外完成：解析涉及大量字符串处理，
-+        // 放在 registry 锁内会串行化所有 display 的注册表操作。
-+        Options captureOptions = Options.parse(DaemonArgs.changeDisplayId(baseArgs, displayId));
++        // Options.parse（含 display_id 改写与画质调优注入）在锁外完成：解析涉及大量
++        // 字符串处理，放在 registry 锁内会串行化所有 display 的注册表操作。
++        Options captureOptions = Options.parse(
++                DaemonArgs.ensureQualityTuning(DaemonArgs.changeDisplayId(baseArgs, displayId)));
 +        synchronized (lock) {
 +            FrameBroadcaster b = broadcasters.get(displayId);
 +            boolean created;

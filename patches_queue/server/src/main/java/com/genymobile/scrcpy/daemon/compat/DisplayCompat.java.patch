@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
 new file mode 100644
-index 00000000..e86c569f
+index 00000000..6423ff82
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,200 @@
 +package com.genymobile.scrcpy.daemon.compat;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -33,6 +33,9 @@ index 00000000..e86c569f
 +    private static volatile Method cachedOrphanReleaseMethod;
 +    private static volatile Object cachedOrphanReleaseTarget;
 +    private static volatile boolean orphanReleaseSearched = false;
++
++    private static final List<String> ORPHAN_RELEASE_CANDIDATES = java.util.Arrays.asList(
++            "releasevirtualdisplay", "removevirtualdisplay");
 +
 +    static {
 +        try {
@@ -171,22 +174,22 @@ index 00000000..e86c569f
 +            for (Object target : targets) {
 +                for (Method method : target.getClass().getDeclaredMethods()) {
 +                    Class<?>[] params = method.getParameterTypes();
-+                    if (params.length == 1 && (params[0] == int.class || params[0] == Integer.class)) {
-+                        String name = method.getName().toLowerCase(Locale.ROOT);
-+                        if (name.contains("release") || name.contains("remove")) {
-+                            try {
-+                                method.setAccessible(true);
-+                                method.invoke(target, displayId);
-+                                Ln.w("Daemon: bestEffortReleaseOrphan succeeded via method=" + method.getName() + " on " + target.getClass().getName());
-+                                synchronized (DisplayCompat.class) {
-+                                    cachedOrphanReleaseMethod = method;
-+                                    cachedOrphanReleaseTarget = target;
-+                                    orphanReleaseSearched = true;
-+                                }
-+                                return true;
-+                            } catch (Throwable ignored) {
-+                                Ln.d("Daemon: release method " + method.getName() + " not applicable on " + target.getClass().getName() + " (probing)");
++                    // 白名单匹配：名称含 release/remove 的单 int 方法可能是任意语义，
++                    // 盲调用有误伤风险，只接受明确的虚拟显示器释放方法。
++                    if (params.length == 1 && (params[0] == int.class || params[0] == Integer.class)
++                            && ORPHAN_RELEASE_CANDIDATES.contains(method.getName().toLowerCase(Locale.ROOT))) {
++                        try {
++                            method.setAccessible(true);
++                            method.invoke(target, displayId);
++                            Ln.w("Daemon: bestEffortReleaseOrphan succeeded via method=" + method.getName() + " on " + target.getClass().getName());
++                            synchronized (DisplayCompat.class) {
++                                cachedOrphanReleaseMethod = method;
++                                cachedOrphanReleaseTarget = target;
++                                orphanReleaseSearched = true;
 +                            }
++                            return true;
++                        } catch (Throwable ignored) {
++                            Ln.d("Daemon: release method " + method.getName() + " not applicable on " + target.getClass().getName() + " (probing)");
 +                        }
 +                    }
 +                }

@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..13484855
+index 00000000..a13e9f19
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 @@ -0,0 +1,341 @@
@@ -174,7 +174,7 @@ index 00000000..13484855
 +        });
 +
 +        register(DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_IDS, ExecutionPolicy.FAST, (msg, sender) -> {
-+            int[] ids = registry.getActiveDisplayIds();
++            int[] ids = registry.getAllDisplayIds();
 +            if (sender != null) {
 +                DeviceMessage response = DaemonMessages.createActiveDisplaysResponse(DaemonMessages.payload(msg).getSequence(), ids);
 +                sender.send(response);
@@ -315,12 +315,12 @@ index 00000000..13484855
 +        return true;
 +    }
 +
-+    private void sendSuccessResponse(ControlMessage msg, int extraData, String text) {
++    private void sendSuccessResponse(ControlMessage msg, int displayId, String text) {
 +        if (sender == null) {
 +            return;
 +        }
 +        try {
-+            DeviceMessage response = DaemonMessages.createGenericResponse(DaemonMessages.payload(msg).getSequence(), 0, extraData, text);
++            DeviceMessage response = DaemonMessages.createGenericResponse(DaemonMessages.payload(msg).getSequence(), 0, displayId, text);
 +            sender.send(response);
 +        } catch (Exception e) {
 +            Ln.e("Failed to send response", e);

@@ -1,9 +1,9 @@
 diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/core/DaemonArgsTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/core/DaemonArgsTest.java
 new file mode 100644
-index 00000000..90e162ef
+index 00000000..2ead8361
 --- /dev/null
 +++ b/server/src/test/java/com/genymobile/scrcpy/daemon/core/DaemonArgsTest.java
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,115 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -88,6 +88,18 @@ index 00000000..90e162ef
 +    public void testMergeOptionsKeepsValueContainingEquals() {
 +        String[] merged = DaemonArgs.mergeOptions(new String[]{"0.14"}, "video_codec_options=profile=1");
 +        Assert.assertArrayEquals(new String[]{"0.14", "video_codec_options=profile=1"}, merged);
++    }
++
++    @Test
++    public void testEnsureQualityTuningInjectsWhenAbsent() {
++        Assert.assertArrayEquals(new String[]{"0.14", "max_size=1024", "quality_tuning=true"},
++                DaemonArgs.ensureQualityTuning(new String[]{"0.14", "max_size=1024"}));
++    }
++
++    @Test
++    public void testEnsureQualityTuningKeepsExplicitValue() {
++        String[] args = {"0.14", "quality_tuning=false"};
++        Assert.assertSame(args, DaemonArgs.ensureQualityTuning(args));
 +    }
 +
 +    @Test

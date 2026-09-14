@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..28e3c6b4
+index 00000000..7cf81b8d
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,507 @@
+@@ -0,0 +1,512 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -437,22 +437,27 @@ index 00000000..28e3c6b4
 +        return true;
 +    }
 +
-+    public int[] getActiveDisplayIds() {
++    /**
++     * @return all display ids known to the system (including displays not managed
++     *         by this daemon); the wire response 101/205 keeps this "all displays" semantics
++     */
++    public int[] getAllDisplayIds() {
 +        int[] ids = ServiceManager.getDisplayManager().getDisplayIds();
 +        return ids != null ? ids : new int[0];
 +    }
 +
 +    /**
-+     * Snapshot of the active virtual display ids with their live DisplayInfo
++     * Snapshot of all system displays with their live DisplayInfo
 +     * (width/height/dpi/rotation). The ids are snapshotted under the registry
 +     * lock, then each DisplayInfo is queried outside the lock to avoid holding
 +     * it during reflection / dumpsys fallback inside DisplayManager.
 +     *
-+     * @return array of DisplayInfo, one per active virtual display; entries
-+     *         whose DisplayInfo cannot be resolved are omitted
++     * @return array of DisplayInfo, one per system display; {@link DisplayInfo#isOwned()}
++     *         marks the entries managed by this daemon. Entries whose DisplayInfo
++     *         cannot be resolved are omitted
 +     */
 +    public DisplayInfo[] getActiveDisplayInfos() {
-+        int[] ids = getActiveDisplayIds();
++        int[] ids = getAllDisplayIds();
 +
 +        // Snapshot active sessions to avoid holding the lock during getDisplayInfo() calls
 +        Map<Integer, VirtualDisplaySession> sessionsSnapshot;
