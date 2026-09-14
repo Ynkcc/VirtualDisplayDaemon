@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
 new file mode 100644
-index 00000000..ca3f601f
+index 00000000..6010758f
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/compat/DisplayCompat.java
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,197 @@
 +package com.genymobile.scrcpy.daemon.compat;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -22,16 +22,17 @@ index 00000000..ca3f601f
 +    private static Method getServiceMethod;
 +    private static Method asInterfaceMethod;
 +    private static Method getRecentTasksMethod;
-+    private static Method getListMethod;
++    // 以下懒初始化字段会被多线程读写（命令线程/清理线程），volatile 保证可见性
++    private static volatile Method getListMethod;
 +    private static Field displayIdField;
 +    private static Field taskIdField;
 +    private static Method moveRootTaskToDisplayMethod;
 +    private static Method moveStackToDisplayMethod;
 +    private static IInterface atmInstance;
 +
-+    private static Method cachedOrphanReleaseMethod;
-+    private static Object cachedOrphanReleaseTarget;
-+    private static boolean orphanReleaseSearched = false;
++    private static volatile Method cachedOrphanReleaseMethod;
++    private static volatile Object cachedOrphanReleaseTarget;
++    private static volatile boolean orphanReleaseSearched = false;
 +
 +    static {
 +        try {

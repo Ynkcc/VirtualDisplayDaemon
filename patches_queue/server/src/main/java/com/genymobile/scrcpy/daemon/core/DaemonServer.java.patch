@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java
 new file mode 100644
-index 00000000..196252ab
+index 00000000..e0cca917
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/DaemonServer.java
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,354 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import android.os.Looper;
@@ -48,6 +48,8 @@ index 00000000..196252ab
 +    private final Map<Integer, ClientSession> sessions = new ConcurrentHashMap<>();
 +    private final AtomicInteger nextSessionId = new AtomicInteger(1);
 +    private final AtomicBoolean running = new AtomicBoolean(true);
++    /** run() 等待退出用的监视器；与 running 的原子值语义分离，避免一物两用。 */
++    private final Object runLock = new Object();
 +
 +    private final VirtualDisplayRegistry registry;
 +    private final DisplaySurfaceBroker surfaceBroker;
@@ -115,9 +117,9 @@ index 00000000..196252ab
 +            // 带超时的等待：即使 notify 丢失（如 accept 线程异常死亡），也能周期性地
 +            // 复查 running 并退出，避免 run() 永久阻塞。
 +            try {
-+                synchronized (running) {
++                synchronized (runLock) {
 +                    while (running.get()) {
-+                        running.wait(1000);
++                        runLock.wait(1000);
 +                    }
 +                }
 +            } catch (InterruptedException e) {
@@ -346,8 +348,8 @@ index 00000000..196252ab
 +
 +    public void requestExit() {
 +        running.set(false);
-+        synchronized (running) {
-+            running.notifyAll();
++        synchronized (runLock) {
++            runLock.notifyAll();
 +        }
 +    }
 +

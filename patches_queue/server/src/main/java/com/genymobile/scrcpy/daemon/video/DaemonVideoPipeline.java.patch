@@ -1,15 +1,14 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/DaemonVideoPipeline.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/DaemonVideoPipeline.java
 new file mode 100644
-index 00000000..dd6ae257
+index 00000000..532d719c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/DaemonVideoPipeline.java
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,120 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
 +import com.genymobile.scrcpy.control.PositionMapper;
-+import com.genymobile.scrcpy.daemon.core.DaemonArgs;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
 +import com.genymobile.scrcpy.video.FrameSink;
 +import com.genymobile.scrcpy.video.ScreenCapture;
@@ -93,21 +92,20 @@ index 00000000..dd6ae257
 +     * <p>刻意不调用 {@code controller.setSurfaceCapture()}：capture 为所有订阅者共享，
 +     * 不能被任一会话的 controller 改写；resize 走 {@code FrameBroadcasterRegistry}。
 +     *
-+     * @param displayId     目标显示器 id
-+     * @param baseArgs      已清洗的 scrcpy 参数（display_id 会被改写）
-+     * @param options       基础会话 options（codec / stream-meta 标志来自这里）
-+     * @param surfaceBroker daemon 管理的 external display provider
-+     * @param controller    首个订阅者的 controller（作为 {@code VirtualDisplayListener}），
-+     *                      可为 {@code null}
-+     * @param sink          接收编码包的 broadcaster（FrameSink）
++     * @param displayId      目标显示器 id
++     * @param options        基础会话 options（codec / stream-meta 标志来自这里）
++     * @param captureOptions 已按 displayId 改写并重新解析的 options（解析须在调用方完成，
++     *                       本方法可能持有调用方锁，不得在锁内做参数解析）
++     * @param surfaceBroker  daemon 管理的 external display provider
++     * @param controller     首个订阅者的 controller（作为 {@code VirtualDisplayListener}），
++     *                       可为 {@code null}
++     * @param sink           接收编码包的 broadcaster（FrameSink）
 +     * @return 引用新建管线的 {@link Built}
-+     * @throws Exception option 解析或管线构建失败（由调用方处理）
++     * @throws Exception 管线构建失败（由调用方处理）
 +     */
-+    public static Built buildBroadcaster(int displayId, String[] baseArgs, Options options,
++    public static Built buildBroadcaster(int displayId, Options options, Options captureOptions,
 +                                         DisplaySurfaceBroker surfaceBroker,
 +                                         Controller controller, FrameSink sink) throws Exception {
-+        String[] modifiedArgs = DaemonArgs.changeDisplayId(baseArgs, displayId);
-+        Options captureOptions = Options.parse(modifiedArgs);
 +
 +        // ScreenCapture 需要 VirtualDisplayListener；controller 尚未接线时（控制 socket 未
 +        // 绑定）用代理兜底，使 capture 仍可构造，并支持后续 setDelegate() 迟绑定。

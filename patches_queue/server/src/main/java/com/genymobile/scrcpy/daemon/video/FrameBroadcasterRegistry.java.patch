@@ -1,13 +1,14 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..2870ef2d
+index 00000000..18bcae33
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,214 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
++import com.genymobile.scrcpy.daemon.core.DaemonArgs;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
 +import com.genymobile.scrcpy.daemon.display.RefCountedDisplayRegistry;
 +import com.genymobile.scrcpy.util.Ln;
@@ -60,15 +61,18 @@ index 00000000..2870ef2d
 +     */
 +    public VideoSubscriber acquireSubscriber(int displayId, int sessionId, FileDescriptor videoFd,
 +                                             Options options, String[] baseArgs, Controller controller) throws Exception {
++        // Options.parse（含 display_id 改写）在锁外完成：解析涉及大量字符串处理，
++        // 放在 registry 锁内会串行化所有 display 的注册表操作。
++        Options captureOptions = Options.parse(DaemonArgs.changeDisplayId(baseArgs, displayId));
 +        synchronized (lock) {
 +            FrameBroadcaster b = broadcasters.get(displayId);
 +            boolean created;
 +            if (b != null) {
 +                created = false;
 +            } else {
-+                // create() 只做对象构造与异步编码线程启动（无阻塞 I/O），因此在锁内
-+                // 完成 get-or-create 是安全的，并与 release/teardown 保持原子。
-+                b = FrameBroadcaster.create(displayId, baseArgs, options, broker, controller);
++                // create() 现在只做对象构造与异步编码线程启动（无参数解析、无阻塞 I/O），
++                // 因此在锁内完成 get-or-create 是安全的，并与 release/teardown 保持原子。
++                b = FrameBroadcaster.create(displayId, options, captureOptions, broker, controller);
 +                broadcasters.put(displayId, b);
 +                created = true;
 +            }

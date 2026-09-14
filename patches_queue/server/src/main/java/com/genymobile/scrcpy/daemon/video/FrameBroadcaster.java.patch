@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 new file mode 100644
-index 00000000..c1bcacba
+index 00000000..2dc3c424
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcaster.java
 @@ -0,0 +1,350 @@
@@ -59,11 +59,11 @@ index 00000000..c1bcacba
 +        this.sendFrameMeta = options.getSendFrameMeta();
 +    }
 +
-+    static FrameBroadcaster create(int displayId, String[] baseArgs, Options options,
++    static FrameBroadcaster create(int displayId, Options options, Options captureOptions,
 +                                   DisplaySurfaceBroker broker, Controller controller) throws Exception {
 +        FrameBroadcaster b = new FrameBroadcaster(displayId, broker, options);
 +        DaemonVideoPipeline.Built built = DaemonVideoPipeline.buildBroadcaster(
-+                displayId, baseArgs, options, broker, controller, b);
++                displayId, options, captureOptions, broker, controller, b);
 +        b.surfaceCapture = built.getSurfaceCapture();
 +        b.surfaceEncoder = built.getSurfaceEncoder();
 +        b.vdListenerProxy = built.getVdListenerProxy();

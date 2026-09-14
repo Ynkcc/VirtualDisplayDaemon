@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
 new file mode 100644
-index 00000000..3f1ff68b
+index 00000000..834604d8
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/ClientSession.java
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,478 @@
 +package com.genymobile.scrcpy.daemon.core;
 +
 +import com.genymobile.scrcpy.Options;
@@ -427,8 +427,13 @@ index 00000000..3f1ff68b
 +
 +        // 停止所有 per-display 视频控制器。stopVideoInternal() 同时释放控制器自身的
 +        // 订阅者并拆除 releaseSession() 不管的控制器/会话资源。
-+        List<SessionVideoController> videoCopy = new ArrayList<>(videoControllers.values());
-+        videoControllers.clear();
++        // 与 onVideoSocket/configure 的创建路径共用 videoControllers 监视器，
++        // 防止并发创建的控制器逃过清理（create 路径受 exited 检查兜底）。
++        List<SessionVideoController> videoCopy;
++        synchronized (videoControllers) {
++            videoCopy = new ArrayList<>(videoControllers.values());
++            videoControllers.clear();
++        }
 +        for (SessionVideoController vc : videoCopy) {
 +            vc.stopVideoInternal();
 +        }

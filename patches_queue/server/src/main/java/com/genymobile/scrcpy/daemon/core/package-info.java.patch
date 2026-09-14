@@ -1,0 +1,32 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/core/package-info.java b/server/src/main/java/com/genymobile/scrcpy/daemon/core/package-info.java
+new file mode 100644
+index 00000000..dd0b080f
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/core/package-info.java
+@@ -0,0 +1,26 @@
++/**
++ * daemon 模式核心包：会话编排（{@code DaemonServer}/{@code ClientSession}）、
++ * 启动参数（{@code DaemonArgs}/{@code DaemonOptions}）与退出协调。
++ *
++ * <h3>锁序契约（由外到内，禁止逆序获取）</h3>
++ * <pre>
++ *   SessionVideoController(this)          ← 最外层：bindVideoSocket/stopVideoInternal/onSubscriberDied
++ *     └─ FrameBroadcasterRegistry.lock    ← 继承自 RefCountedDisplayRegistry
++ *          └─ FrameBroadcaster.lock       ← 订阅者表与缓存帧
++ *               └─ VideoSubscriber.queueLock ← 帧队列多步操作
++ * </pre>
++ * {@code VirtualDisplayRegistry.lock} 与上述链路独立，任何线程都不得在持有其它
++ * monitor 的同时回调 {@code FrameBroadcaster#shutdown()} 之外再进入它
++ * （shutdown → broker.restore → registry.getSession 是唯一的反向路径，只触及
++ * VirtualDisplayRegistry.lock，两把锁无环）。
++ *
++ * <p>补充约束：
++ * <ul>
++ *   <li>{@code ClientSession.videoControllers} 是独立监视器，用于
++ *       {@code CONFIGURE_SESSION} 选项发布与视频控制器创建的原子性；
++ *       遍历/清空（cleanup）也必须持该监视器。</li>
++ *   <li>重 I/O（socket 关闭、binder 调用、broadcaster teardown）一律在
++ *       {@code FrameBroadcasterRegistry.lock} 之外执行；锁内只做判定与登记。</li>
++ * </ul>
++ */
++package com.genymobile.scrcpy.daemon.core;
