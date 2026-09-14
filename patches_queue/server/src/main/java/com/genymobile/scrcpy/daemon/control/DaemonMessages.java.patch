@@ -1,31 +1,27 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java
 new file mode 100644
-index 00000000..5af9b224
+index 00000000..ca466bce
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,264 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
 +import com.genymobile.scrcpy.control.DeviceMessage;
++import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +import com.genymobile.scrcpy.display.DisplayInfo;
 +import com.genymobile.scrcpy.model.DeviceApp;
 +
-+import java.util.ArrayList;
-+import java.util.Collections;
 +import java.util.List;
 +
 +/**
-+ * Single factory for daemon-mode control/device messages: wire-type constants (1xx responses,
-+ * 2xx requests), the shared {@code payload}/{@code envelope} scaffolding for both envelopes,
-+ * and all {@code createXxx} builders.
++ * daemon 模式控制/设备消息的唯一工厂：wire 类型常量（1xx 响应、2xx 请求）、
++ * 两种信封共用的 {@code payload}/{@code envelope} 脚手架，以及全部 {@code createXxx} 构造器。
 + *
-+ * <p>This unifies the former {@code DaemonControlMessages} (requests + 2xx types) and
-+ * {@code DaemonDeviceMessages} (responses + 1xx types). Both reuse the upstream envelope classes
-+ * ({@link ControlMessage} / {@link DeviceMessage}) as carriers — the type-specific DTO
-+ * ({@link DaemonControlMessage} / {@link DaemonDeviceMessage}) is attached via
-+ * {@link ExtensionCarrier#setExtensionPayload(Object)} — so the upstream classes stay free of
-+ * daemon-specific fields and upstream updates merge cleanly.
++ * <p>请求与响应分别复用上游 {@link ControlMessage} / {@link DeviceMessage} 作为信封，
++ * 类型专属载荷经 {@link ExtensionCarrier#setExtensionPayload(Object)} 挂在
++ * {@link DaemonControlMessage} / {@link DaemonDeviceMessage} 上，使上游类保持干净、
++ * 上游更新可干净合并。
 + */
 +public final class DaemonMessages {
 +
@@ -33,19 +29,18 @@ index 00000000..5af9b224
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // 1xx: device responses (client-visible)
++    // 1xx: 设备响应（客户端可见）
 +    // ------------------------------------------------------------------
 +
 +    public static final int TYPE_RESPONSE_GENERIC = 100;
 +    public static final int TYPE_RESPONSE_ACTIVE_DISPLAYS = 101;
-+    // Enriched variant of 101: carries per-display {id,width,height,dpi,rotation}.
++    // 101 的增强版：携带每个显示器的 {id,width,height,dpi,rotation}。
 +    public static final int TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS = 102;
-+    // List of installed apps (non-system with launch intent) for the remote device.
-+    // Enables uniform AppSelectionDialog on both local and remote nodes.
++    // 已安装应用列表（有 launcher intent 的非系统应用），使本地与远程节点共用 AppSelectionDialog。
 +    public static final int TYPE_RESPONSE_APPS_LIST = 103;
 +
 +    // ------------------------------------------------------------------
-+    // 2xx: daemon-mode control requests (client → daemon)
++    // 2xx: daemon 控制请求（客户端 → daemon）
 +    // ------------------------------------------------------------------
 +
 +    public static final int TYPE_CREATE_VIRTUAL_DISPLAY = 201;
@@ -55,50 +50,41 @@ index 00000000..5af9b224
 +    public static final int TYPE_GET_ACTIVE_DISPLAY_IDS = 205;
 +    public static final int TYPE_EXIT_DAEMON = 208;
 +
-+    // Rotation control (per-display). For TYPE_FREEZE_ROTATION the requested
-+    // rotation (0-3) is carried in DaemonControlMessage.flags.
++    // 每显示器旋转控制。TYPE_FREEZE_ROTATION 的目标旋转值(0-3)由
++    // DaemonControlMessage.rotation 承载。
 +    public static final int TYPE_GET_ROTATION = 211;
 +    public static final int TYPE_FREEZE_ROTATION = 212;
 +    public static final int TYPE_THAW_ROTATION = 213;
 +    public static final int TYPE_IS_ROTATION_FROZEN = 214;
 +
-+    // Enriched active-display query: returns per-display {id,w,h,dpi,rotation}
-+    // via TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS (102). The legacy
-+    // TYPE_GET_ACTIVE_DISPLAY_IDS (205) / 101 path is kept unchanged.
++    // 增强版活动显示器查询：经 TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS(102) 返回
++    // 每显示器 {id,w,h,dpi,rotation}。旧的 TYPE_GET_ACTIVE_DISPLAY_IDS(205)/101 保持兼容。
 +    public static final int TYPE_GET_ACTIVE_DISPLAY_INFOS = 215;
 +
-+    // Negotiation-phase session configuration. The client MUST send this on the
-+    // ROLE_NEGOTIATION socket (after receiving sessionId + device meta) before
-+    // opening any ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL socket. It carries
-+    // per-session scrcpy option overrides (newline-separated key=value) and a
-+    // bitmask of the roles the client intends to open. The server rebuilds the
-+    // per-session Options from the overrides and only then allows role sockets
-+    // to bind — enforcing "negotiate first, open more sockets after".
++    // 协商阶段的会话配置。客户端 MUST 在收到 sessionId + device meta 后、打开任何
++    // ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL socket 之前，在 ROLE_NEGOTIATION socket 上发送本消息。
++    // 载荷为会话级 scrcpy 选项覆盖（newline 分隔 key=value）与客户端打算打开的 role 集合。
 +    public static final int TYPE_CONFIGURE_SESSION = 216;
 +
-+    // Launch the device's default home launcher on a specific virtual display.
-+    // Payload: int32 displayId. Server resolves the home component itself.
++    // 在指定虚拟显示器上启动系统默认 launcher。载荷：int32 displayId，home 组件由服务端解析。
 +    public static final int TYPE_LAUNCH_HOME = 217;
 +
-+    // List installed apps on the device. Returns the list of non-system apps
-+    // that have a launch intent, so the client AppSelectionDialog works
-+    // identically for both local and remote nodes.
++    // 列出设备已安装应用（有 launch intent 的非系统应用）。
 +    public static final int TYPE_LIST_APPS = 218;
 +
-+    // Ping request to measure RTT. Server replies with TYPE_RESPONSE_GENERIC
-+    // echoing the sequence number.
++    // RTT 探测；服务端以 TYPE_RESPONSE_GENERIC 回显 sequence 应答。
 +    public static final int TYPE_PING = 219;
 +
 +    // ------------------------------------------------------------------
-+    // Shared payload / envelope scaffolding
++    // 共用的载荷 / 信封脚手架
 +    // ------------------------------------------------------------------
 +
-+    /** Extract the daemon control DTO attached to a request envelope. */
++    /** 取出请求信封上挂载的 daemon 控制 DTO。 */
 +    public static DaemonControlMessage payload(ControlMessage msg) {
 +        return (DaemonControlMessage) msg.getExtensionPayload();
 +    }
 +
-+    /** Extract the daemon device DTO attached to a response envelope. */
++    /** 取出响应信封上挂载的 daemon 设备 DTO。 */
 +    public static DaemonDeviceMessage payload(DeviceMessage msg) {
 +        return (DaemonDeviceMessage) msg.getExtensionPayload();
 +    }
@@ -116,12 +102,8 @@ index 00000000..5af9b224
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // Request builders
++    // 请求构造器
 +    // ------------------------------------------------------------------
-+
-+    public static ControlMessage createCreateVirtualDisplay(long sequence, String name, int width, int height, int dpi, int flags) {
-+        return createCreateVirtualDisplay(sequence, name, width, height, dpi, flags, -1);
-+    }
 +
 +    public static ControlMessage createCreateVirtualDisplay(long sequence, String name, int width, int height, int dpi, int flags, int displayId) {
 +        DaemonControlMessage dto = new DaemonControlMessage();
@@ -138,16 +120,15 @@ index 00000000..5af9b224
 +    /**
 +     * 创建"释放虚拟显示器"命令。
 +     *
-+     * @param sequence   消息序号
-+     * @param displayId  要销毁的显示器 id
-+     * @param moveTasksToDefaultDisplay 销毁前是否将显示器上的任务移回主屏（true=前台移回，false=不处理交给系统）
++     * @param moveTasksToDefaultDisplay 销毁前是否将任务前台移回主屏
 +     */
 +    public static ControlMessage createReleaseVirtualDisplay(long sequence, int displayId, boolean moveTasksToDefaultDisplay) {
 +        DaemonControlMessage dto = new DaemonControlMessage();
 +        dto.setSequence(sequence);
 +        dto.setDisplayId(displayId);
-+        // 复用 flags 字段承载行为标志（0=不处理，1=前台移回），避免扩展 protobuf schema
-+        dto.setFlags(moveTasksToDefaultDisplay ? 1 : 0);
++        dto.setFlags(moveTasksToDefaultDisplay
++                ? DaemonControlMessage.RELEASE_MOVE_TASKS_TO_DEFAULT
++                : DaemonControlMessage.RELEASE_KEEP_TASKS);
 +        return envelope(TYPE_RELEASE_VIRTUAL_DISPLAY, dto);
 +    }
 +
@@ -186,7 +167,7 @@ index 00000000..5af9b224
 +        DaemonControlMessage dto = new DaemonControlMessage();
 +        dto.setSequence(sequence);
 +        dto.setDisplayId(displayId);
-+        dto.setFlags(rotation);
++        dto.setRotation(rotation);
 +        return envelope(TYPE_FREEZE_ROTATION, dto);
 +    }
 +
@@ -216,31 +197,22 @@ index 00000000..5af9b224
 +        return envelope(TYPE_EXIT_DAEMON, dto);
 +    }
 +
-+    public static ControlMessage createConfigureSession(long sequence, String optionsKv, int rolesMask) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setOptionsKv(optionsKv != null ? optionsKv : "");
-+        dto.setRolesMask(rolesMask);
-+        return envelope(TYPE_CONFIGURE_SESSION, dto);
-+    }
-+
 +    /**
-+     * Multi-role multi-display variant of {@link #createConfigureSession(long, String, int)}.
-+     *
-+     * <p>Declares the exact set of (role, displayId) sockets the client intends to open. See
-+     * {@link DaemonControlMessage.RoleEntry} for semantics. When non-empty,
-+     * {@code rolesEntries} takes precedence over the legacy 3-bit mask; the mask is preserved in
-+     * the payload so older readers that only inspect the mask still see which role *types* are
-+     * intended.
++     * 声明客户端打算打开的 (role, displayId) 集合；非空时优先于 3-bit mask。
++     * mask 仍写入载荷，使只看 mask 的读取方仍能得知 role 类型。
 +     */
 +    public static ControlMessage createConfigureSession(long sequence, String optionsKv, int rolesMask,
-+                                                        List<DaemonControlMessage.RoleEntry> rolesEntries) {
++                                                        List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) {
 +        DaemonControlMessage dto = new DaemonControlMessage();
 +        dto.setSequence(sequence);
 +        dto.setOptionsKv(optionsKv != null ? optionsKv : "");
 +        dto.setRolesMask(rolesMask);
 +        dto.setRolesEntries(rolesEntries);
 +        return envelope(TYPE_CONFIGURE_SESSION, dto);
++    }
++
++    public static ControlMessage createConfigureSession(long sequence, String optionsKv, int rolesMask) {
++        return createConfigureSession(sequence, optionsKv, rolesMask, null);
 +    }
 +
 +    public static ControlMessage createLaunchHome(long sequence, int displayId) {
@@ -263,7 +235,7 @@ index 00000000..5af9b224
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // Response builders
++    // 响应构造器
 +    // ------------------------------------------------------------------
 +
 +    public static DeviceMessage createGenericResponse(long sequence, int statusCode, int displayId, String responseString) {

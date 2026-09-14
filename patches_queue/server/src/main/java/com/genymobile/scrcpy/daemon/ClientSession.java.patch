@@ -1,24 +1,26 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..794ee96e
+index 00000000..69f2f1a0
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,529 @@
+@@ -0,0 +1,471 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
-+import com.genymobile.scrcpy.control.Controller;
++import com.genymobile.scrcpy.control.ControlChannel;
 +import com.genymobile.scrcpy.control.ControlMessage;
++import com.genymobile.scrcpy.control.Controller;
 +import com.genymobile.scrcpy.control.DeviceMessageSender;
 +import com.genymobile.scrcpy.daemon.control.DaemonCommandHandler;
-+import com.genymobile.scrcpy.daemon.control.DaemonControlMessage;
-+import com.genymobile.scrcpy.daemon.display.VirtualDisplayRegistry;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
++import com.genymobile.scrcpy.daemon.display.VirtualDisplayRegistry;
++import com.genymobile.scrcpy.daemon.display.VirtualDisplaySession;
 +import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +import com.genymobile.scrcpy.daemon.video.FrameBroadcasterRegistry;
 +import com.genymobile.scrcpy.device.Device;
 +import com.genymobile.scrcpy.util.Ln;
 +
++import java.io.FileDescriptor;
 +import java.io.IOException;
 +import java.net.Socket;
 +import java.util.ArrayList;
@@ -32,28 +34,27 @@ index 00000000..794ee96e
 +import java.util.concurrent.atomic.AtomicBoolean;
 +
 +/**
-+ * Per-client session orchestrator — now with per-session multi-display role
-+ * sockets.
++ * 单个客户端的会话编排器，管理 per-session 的多显示器 role socket。
 + *
-+ * <p><b>Protocol phases</b> (enforced server-side, no backward compatibility):
++ * <p><b>协议阶段</b>（服务端强制，无向后兼容）：
 + * <pre>
-+ *   INIT       — ROLE_NEGOTIATION socket just opened; sessionId assigned,
-+ *                device meta sent. Only CONFIGURE_SESSION is accepted.
-+ *   CONFIGURED — client sent CONFIGURE_SESSION with optionsKv + rolesEntries
-+ *                (or legacy rolesMask). Role sockets (ROLE_VIDEO/ROLE_AUDIO/
-+ *                ROLE_CONTROL) for a (role, displayId) declared in
-+ *                rolesEntries are now accepted. The same role can be opened
-+ *                multiple times for different displays.
-+ *   CLOSED     — session tearing down; everything rejected.
++ *   INIT       — ROLE_NEGOTIATION 刚打开；已分配 sessionId 并发送 device meta。
++ *                只接受 CONFIGURE_SESSION。
++ *   CONFIGURED — 客户端已发送 CONFIGURE_SESSION（optionsKv + rolesEntries 或
++ *                legacy rolesMask）。此时才接受声明过的 (role, displayId) 的
++ *                ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL socket；同一 role 可为
++ *                不同显示器多次打开。
++ *   CLOSED     — 会话正在拆除；一切请求被拒。
 + * </pre>
 + */
 +public final class ClientSession implements Runnable, SessionConfigurator {
 +
 +    private static final long STOP_JOIN_TIMEOUT_MS = 5000;
++    private static final long CONFIGURE_WAIT_TIMEOUT_MS = 2000;
 +
-+    private static final int PHASE_INIT = 0;
-+    private static final int PHASE_CONFIGURED = 1;
-+    private static final int PHASE_CLOSED = 2;
++    private enum Phase {
++        INIT, CONFIGURED, CLOSED
++    }
 +
 +    private final int sessionId;
 +    private final TcpDesktopConnection connection;
@@ -68,23 +69,21 @@ index 00000000..794ee96e
 +    private volatile Options sessionOptions;
 +    private volatile String[] sessionArgs;
 +
-+    /** Legacy 3-bit role-type mask; kept for fallback. */
++    /** 兼容用的 3-bit role 类型 mask。 */
 +    private volatile int declaredRolesMask = 0;
-+    /** Explicit (role, displayId) declarations from CONFIGURE_SESSION. */
++    /** CONFIGURE_SESSION 声明的精确 (role, displayId) 集合。 */
 +    private volatile Set<TcpDesktopConnection.RoleDisplayKey> declaredRoleKeys = Collections.emptySet();
 +
-+    private volatile int phase = PHASE_INIT;
++    private volatile Phase phase = Phase.INIT;
 +    private final CountDownLatch configuredLatch = new CountDownLatch(1);
 +    private final AtomicBoolean exited = new AtomicBoolean(false);
-+    // Cleanup idempotence guard, separate from `exited`: shutdown() sets exited
-+    // first and THEN calls cleanup(), so cleanup() itself must not gate on a
-+    // exited(false→true) CAS — that CAS always fails and cleanup would never run.
++    // 独立的清理幂等守卫：shutdown() 先置 exited 再调 cleanup()，因此 cleanup() 不能
++    // 以 exited 的 false→true CAS 为门（该 CAS 必然失败，cleanup 永不执行）。
 +    private final AtomicBoolean cleanedUp = new AtomicBoolean(false);
 +
-+    // Per-(displayId) video controllers. Multiple displays → multiple instances.
++    // 每个显示器一份视频控制器；多显示器即多实例。
 +    private final Map<Integer, SessionVideoController> videoControllers = new ConcurrentHashMap<>();
 +
-+    // Per-(displayId) controllers and control-loop runners.
 +    private final Map<Integer, Controller> controllers = new ConcurrentHashMap<>();
 +    private final Map<Integer, ControlLoopRunner> controlLoopRunners = new ConcurrentHashMap<>();
 +
@@ -110,9 +109,8 @@ index 00000000..794ee96e
 +    @Override
 +    public void run() {
 +        Ln.i("Session[" + sessionId + "]: starting negotiation loop (phase=INIT)");
-+        String deviceName = Device.getDeviceName();
 +        try {
-+            connection.sendDeviceMeta(deviceName);
++            connection.sendDeviceMeta(Device.getDeviceName());
 +            Ln.i("Session[" + sessionId + "]: device meta sent via negotiation channel");
 +        } catch (IOException e) {
 +            Ln.w("Session[" + sessionId + "]: failed to send device meta: " + e.getMessage());
@@ -124,7 +122,7 @@ index 00000000..794ee96e
 +            negotiationSender.start();
 +
 +            negotiationCommandHandler = new DaemonCommandHandler(
-+                    negotiationSender, null, registry, exitCoordinator, null, this, broadcasterRegistry, sessionId);
++                    negotiationSender, registry, exitCoordinator, this, broadcasterRegistry, sessionId);
 +
 +            while (!exited.get() && !Thread.currentThread().isInterrupted()) {
 +                ControlMessage msg;
@@ -137,8 +135,7 @@ index 00000000..794ee96e
 +                if (msg == null) {
 +                    break;
 +                }
-+                boolean handled = negotiationCommandHandler.handle(msg);
-+                if (!handled) {
++                if (!negotiationCommandHandler.handle(msg)) {
 +                    Ln.w("Session[" + sessionId + "]: unhandled message type in negotiation: " + msg.getType());
 +                }
 +            }
@@ -172,20 +169,16 @@ index 00000000..794ee96e
 +
 +    @Override
 +    public void configure(String optionsKv, int legacyRolesMask,
-+                          List<DaemonControlMessage.RoleEntry> rolesEntries) throws Exception {
-+        if (exited.get() || phase == PHASE_CLOSED) {
++                          List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) throws Exception {
++        if (exited.get() || phase == Phase.CLOSED) {
 +            throw new RuntimeException("Session already exited");
 +        }
 +        String[] merged = DaemonArgs.mergeOptions(baseArgs, optionsKv);
 +        Options parsed = Options.parse(merged);
 +
-+        // Publish the parsed session options atomically with the
-+        // "no video started yet" check. Holding videoControllers throughout the
-+        // check+assign removes the window where an accept thread could create a
-+        // video controller between the isEmpty() test and the assignment,
-+        // leaving that controller with stale options. (onVideoSocket's
-+        // putIfAbsent is also on this map; sessionOptions/sessionArgs are
-+        // volatile so they are safely published to the creating thread.)
++        // 与"尚未启动任何视频"检查在同一临界区内原子地发布 session 选项：否则接受线程
++        // 可能在 isEmpty() 判定与赋值之间创建视频控制器，使其拿到过期选项。onVideoSocket
++        // 的创建路径也持有同一把 videoControllers 监视器。
 +        synchronized (videoControllers) {
 +            if (!videoControllers.isEmpty()) {
 +                throw new RuntimeException("Cannot configure session after video streams started");
@@ -197,29 +190,22 @@ index 00000000..794ee96e
 +
 +        if (rolesEntries != null && !rolesEntries.isEmpty()) {
 +            Set<TcpDesktopConnection.RoleDisplayKey> keys = ConcurrentHashMap.newKeySet();
-+            for (DaemonControlMessage.RoleEntry e : rolesEntries) {
-+                keys.add(new TcpDesktopConnection.RoleDisplayKey(e.role, e.displayId));
-+            }
++            keys.addAll(rolesEntries);
 +            this.declaredRoleKeys = Collections.unmodifiableSet(keys);
-+            // Rebuild a legacy mask summarizing which role *types* appear.
++            // 重建一个汇总 role 类型的 legacy mask，仅用于日志。
 +            int combinedMask = 0;
 +            for (TcpDesktopConnection.RoleDisplayKey k : keys) {
 +                combinedMask |= (1 << k.role);
 +            }
-+            // Legacy mask only matters when entries are absent; still store for logs.
-+            if (legacyRolesMask == 0) this.declaredRolesMask = combinedMask;
++            if (legacyRolesMask == 0) {
++                this.declaredRolesMask = combinedMask;
++            }
 +        } else {
 +            this.declaredRoleKeys = Collections.emptySet();
 +        }
 +
-+        // Propagate session options to any existing SessionVideoController
-+        // (none should exist yet; kept for forward safety).
-+        for (SessionVideoController vc : videoControllers.values()) {
-+            vc.setSessionOptions(parsed, merged);
-+        }
-+
-+        if (phase == PHASE_INIT) {
-+            phase = PHASE_CONFIGURED;
++        if (phase == Phase.INIT) {
++            phase = Phase.CONFIGURED;
 +            configuredLatch.countDown();
 +        }
 +        Ln.i("Session[" + sessionId + "]: CONFIGURE_SESSION applied — phase=CONFIGURED"
@@ -229,27 +215,27 @@ index 00000000..794ee96e
 +    }
 +
 +    // -----------------------------------------------------------------------
-+    // Role-socket gates — reject unless CONFIGURED + declared.
++    // Role socket 门禁 — 非 CONFIGURED 或未声明则拒绝。
 +    // -----------------------------------------------------------------------
 +
 +    private boolean acceptRoleSocket(int role, int displayId) {
-+        if (phase == PHASE_INIT) {
++        if (phase == Phase.INIT) {
 +            try {
-+                if (!configuredLatch.await(2000, TimeUnit.MILLISECONDS)) {
++                if (!configuredLatch.await(CONFIGURE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
 +                    Ln.w("Session[" + sessionId + "]: timeout waiting for CONFIGURE_SESSION");
 +                }
 +            } catch (InterruptedException e) {
 +                Thread.currentThread().interrupt();
 +            }
 +        }
-+        if (phase != PHASE_CONFIGURED) {
-+            Ln.w("Session[" + sessionId + "]: rejecting role socket — phase="
-+                    + phaseName(phase) + " (must complete CONFIGURE_SESSION first)");
++        if (phase != Phase.CONFIGURED) {
++            Ln.w("Session[" + sessionId + "]: rejecting role socket — phase=" + phase
++                    + " (must complete CONFIGURE_SESSION first)");
 +            return false;
 +        }
 +        Set<TcpDesktopConnection.RoleDisplayKey> keys = declaredRoleKeys;
 +        if (!keys.isEmpty()) {
-+            // Multi-display mode: require exact (role,displayId) declaration.
++            // 多显示器模式：要求精确 (role,displayId) 声明。
 +            if (!keys.contains(new TcpDesktopConnection.RoleDisplayKey(role, displayId))) {
 +                Ln.w("Session[" + sessionId + "]: rejecting role socket "
 +                        + new TcpDesktopConnection.RoleDisplayKey(role, displayId)
@@ -258,7 +244,7 @@ index 00000000..794ee96e
 +            }
 +            return true;
 +        }
-+        // Fallback: legacy 3-bit mask (0 = allow any declared role type).
++        // 回退：legacy 3-bit mask（0 = 允许任意已声明 role 类型）。
 +        int bit = 1 << role;
 +        if (declaredRolesMask != 0 && (declaredRolesMask & bit) == 0) {
 +            Ln.w("Session[" + sessionId + "]: rejecting role socket bit 0b"
@@ -269,64 +255,51 @@ index 00000000..794ee96e
 +        return true;
 +    }
 +
-+    private static String phaseName(int phase) {
-+        switch (phase) {
-+            case PHASE_INIT: return "INIT";
-+            case PHASE_CONFIGURED: return "CONFIGURED";
-+            case PHASE_CLOSED: return "CLOSED";
-+            default: return "UNKNOWN(" + phase + ")";
-+        }
-+    }
-+
 +    // -----------------------------------------------------------------------
-+    // Role socket bindings — now per-displayId.
++    // Role socket 绑定 — 按 displayId 区分。
 +    // -----------------------------------------------------------------------
 +
 +    public void onControlSocket(int displayId, Socket socket) {
 +        if (exited.get() || !acceptRoleSocket(TcpDesktopConnection.ROLE_CONTROL, displayId)) {
-+            try { socket.close(); } catch (IOException ignored) {}
++            TcpDesktopConnection.closeQuietly(socket);
 +            return;
 +        }
 +        try {
-+            // Acknowledge: server sends the displayId back so client can confirm routing.
++            // 确认：服务端回写 displayId，使客户端能确认路由。
 +            TcpDesktopConnection.writeDisplayId(socket, displayId);
 +
-+            com.genymobile.scrcpy.control.ControlChannel ch = connection.bindControlSocket(displayId, socket);
++            ControlChannel ch = connection.bindControlSocket(displayId, socket);
 +            Ln.i("Session[" + sessionId + "]: control socket bound for displayId=" + displayId
 +                    + ", launching scrcpy controller");
 +
-+            Controller controller;
 +            Controller stale = controllers.remove(displayId);
 +            if (stale != null) {
 +                stale.stop();
-+                ControlLoopRunner sr = controlLoopRunners.remove(displayId);
-+                if (sr != null) {
-+                    // Join with a timeout as a safety net: a stale controller
-+                    // whose recv() is blocked on a socket that could not be
-+                    // closed would otherwise hold this thread forever. With a
-+                    // timeout we log and move on (the accept loop is no longer
-+                    // on this thread after the DaemonServer refactor, but a
-+                    // leaked loop still must not wedge a role thread).
++                ControlLoopRunner staleRunner = controlLoopRunners.remove(displayId);
++                if (staleRunner != null) {
++                    // 带超时 join 作为安全网：若某个陈旧 controller 的 recv() 阻塞在无法
++                    // 关闭的 socket 上，无限 join 会永久占住本 role 线程。
 +                    try {
-+                        sr.join(3000);
-+                        if (sr.getThread() != null && sr.getThread().isAlive()) {
++                        staleRunner.join(3000);
++                        Thread st = staleRunner.getThread();
++                        if (st != null && st.isAlive()) {
 +                            Ln.w("Session[" + sessionId + "]: stale control loop for displayId=" + displayId
 +                                    + " did not stop within 3s; leaking daemon thread");
 +                        }
-+                    } catch (InterruptedException ignored) {
++                    } catch (InterruptedException e) {
 +                        Thread.currentThread().interrupt();
 +                    }
 +                }
 +            }
++
 +            int mirrorId = -1;
-+            com.genymobile.scrcpy.daemon.display.VirtualDisplaySession vdSession = registry.getSession(displayId);
++            VirtualDisplaySession vdSession = registry.getSession(displayId);
 +            if (vdSession != null) {
 +                mirrorId = vdSession.getMirrorDisplayId();
 +            }
-+            controller = new Controller(ch, null, sessionOptions, displayId, mirrorId);
++            Controller controller = new Controller(ch, null, sessionOptions, displayId, mirrorId);
 +
-+            // 职责去重: swallow daemon commands on control channel; only
-+            // the negotiation channel carries them.
++            // 职责去重：控制通道上的 daemon 命令一律吞掉并告警，命令只走协商通道。
 +            controller.setControlMessageExtension(msg -> {
 +                Ln.w("Session[" + sessionId + "]: daemon command type " + msg.getType()
 +                        + " rejected on control channel (displayId=" + displayId
@@ -335,25 +308,13 @@ index 00000000..794ee96e
 +            });
 +
 +            controllers.put(displayId, controller);
-+            // Late-binding fix: if the shared encoder/broadcaster was created
-+            // before this control socket arrived (video-first ordering), the
-+            // ScreenCapture listener was a no-op proxy. Wire this controller in
-+            // now so it receives virtualDisplayId + PositionMapper.
++            // 迟到绑定：若共享 encoder/broadcaster 在控制 socket 之前创建（video-first），
++            // 当时的 ScreenCapture 监听器是空代理，现在把本 controller 接上。
 +            broadcasterRegistry.attachListener(displayId, controller);
 +
-+            // Wire any displayId-matching video controller to this controller
-+            // (needed by encoder reset paths that consult the scrcpy Controller).
 +            SessionVideoController vc = videoControllers.get(displayId);
 +            if (vc != null) {
 +                vc.setController(controller);
-+            }
-+
-+            // Broadcast into the negotiation handler — it now exposes all
-+            // display controllers via hasControllerFor(any) semantics so
-+            // RESIZE_VIRTUAL_DISPLAY can kick the shared broadcaster regardless
-+            // of which display's controller is currently wired as "primary".
-+            if (negotiationCommandHandler != null) {
-+                negotiationCommandHandler.updateController(controller);
 +            }
 +
 +            ControlLoopRunner runner = new ControlLoopRunner(sessionId);
@@ -364,51 +325,40 @@ index 00000000..794ee96e
 +                Ln.i("Session[" + sessionId + "]: scrcpy controller terminated for displayId="
 +                        + displayId + ", fatal=" + fatalError);
 +                finalCtrl.stop();
-+                // Close the control socket so the client observes the disconnect
-+                // instead of silently writing touch events into a dead loop.
-+                try {
-+                    ctrlSocket.close();
-+                    Ln.i("Session[" + sessionId + "]: closed control socket after controller termination, displayId=" + displayId);
-+                } catch (IOException e) {
-+                    Ln.w("Session[" + sessionId + "]: failed to close control socket after controller termination (displayId="
-+                            + displayId + "): " + e.getMessage());
-+                }
++                // 关闭控制 socket，使客户端看到断连，而不是继续把触摸事件写进死循环。
++                TcpDesktopConnection.closeQuietly(ctrlSocket);
 +            });
 +        } catch (Throwable t) {
 +            Ln.e("Session[" + sessionId + "]: failed to initialize scrcpy controller displayId=" + displayId, t);
-+            try { socket.close(); } catch (IOException ignored) {}
++            TcpDesktopConnection.closeQuietly(socket);
 +        }
 +    }
 +
 +    public void onVideoSocket(int displayId, Socket socket) {
 +        if (exited.get() || !acceptRoleSocket(TcpDesktopConnection.ROLE_VIDEO, displayId)) {
-+            try { socket.close(); } catch (IOException ignored) {}
++            TcpDesktopConnection.closeQuietly(socket);
 +            return;
 +        }
 +        SessionVideoController vc;
-+        vc = videoControllers.get(displayId);
-+        if (vc == null) {
-+            final int vcDisplayId = displayId;
-+            vc = new SessionVideoController(
-+                    sessionId,
-+                    vcDisplayId,
-+                    new TcpVideoBindingAdapter(connection, vcDisplayId),
-+                    sessionOptions, sessionArgs, surfaceBroker, broadcasterRegistry,
-+                    registry, exited::get);
-+            SessionVideoController existing = videoControllers.putIfAbsent(displayId, vc);
-+            if (existing != null) {
-+                vc = existing;
-+            } else {
-+                // If a controller for this display already exists, wire it.
-+                Controller ctrl = controllers.get(vcDisplayId);
-+                if (ctrl != null) vc.setController(ctrl);
++        synchronized (videoControllers) {
++            vc = videoControllers.get(displayId);
++            if (vc == null) {
++                vc = new SessionVideoController(
++                        sessionId, displayId, new TcpVideoBindingAdapter(connection, displayId),
++                        sessionOptions, sessionArgs, broadcasterRegistry, registry, exited::get);
++                videoControllers.put(displayId, vc);
++                // 若该显示器的 controller 已存在，立即接线。
++                Controller ctrl = controllers.get(displayId);
++                if (ctrl != null) {
++                    vc.setController(ctrl);
++                }
 +            }
 +        }
 +        try {
 +            TcpDesktopConnection.writeDisplayId(socket, displayId);
 +        } catch (IOException e) {
 +            Ln.w("Session[" + sessionId + "]: failed to write displayId ack for video socket: " + e.getMessage());
-+            try { socket.close(); } catch (IOException ignored) {}
++            TcpDesktopConnection.closeQuietly(socket);
 +            return;
 +        }
 +        vc.bindVideoSocket(socket);
@@ -416,7 +366,7 @@ index 00000000..794ee96e
 +
 +    public void onAudioSocket(int displayId, Socket socket) {
 +        if (exited.get() || !acceptRoleSocket(TcpDesktopConnection.ROLE_AUDIO, displayId)) {
-+            try { socket.close(); } catch (IOException ignored) {}
++            TcpDesktopConnection.closeQuietly(socket);
 +            return;
 +        }
 +        try {
@@ -424,10 +374,11 @@ index 00000000..794ee96e
 +            connection.bindAudioSocket(displayId, socket);
 +        } catch (IOException e) {
 +            Ln.e("Session[" + sessionId + "]: failed to bind audio socket displayId=" + displayId, e);
++            TcpDesktopConnection.closeQuietly(socket);
 +        }
 +    }
 +
-+    // Adapts the per-display FdChannel to SessionVideoController.TcpVideoBinding.
++    // 把 per-display FdChannel 适配为 SessionVideoController.TcpVideoBinding。
 +    private static final class TcpVideoBindingAdapter implements SessionVideoController.TcpVideoBinding {
 +        private final TcpDesktopConnection conn;
 +        private final int displayId;
@@ -438,14 +389,13 @@ index 00000000..794ee96e
 +        }
 +
 +        @Override
-+        public java.io.FileDescriptor getVideoFd() {
-+            TcpDesktopConnection.FdChannel ch = conn.getVideoChannel(displayId);
-+            return ch != null ? ch.fd : null;
++        public FileDescriptor getVideoFd() {
++            return conn.getVideoFd(displayId);
 +        }
 +
 +        @Override
 +        public boolean hasVideo() {
-+            return conn.getVideoChannel(displayId) != null;
++            return conn.hasVideoChannel(displayId);
 +        }
 +
 +        @Override
@@ -465,34 +415,28 @@ index 00000000..794ee96e
 +
 +    private void cleanup() {
 +        if (!cleanedUp.compareAndSet(false, true)) {
-+            return; // Already cleaned up
++            return; // 已清理
 +        }
 +        exited.set(true);
-+        phase = PHASE_CLOSED;
++        phase = Phase.CLOSED;
 +        configuredLatch.countDown();
 +
-+        // Step 3: release all VD references held by this session.
++        // 释放本会话持有的全部 VD 引用。
 +        registry.releaseSession(sessionId);
-+        // Step 4: release all video subscribers held by this session. This is an
-+        // idempotent safety net (drops every (sessionId, displayId) subscription
-+        // and shuts down now-empty broadcasters). The per-controller
-+        // stopVideoInternal() below also releases its own subscriber; that is a
-+        // second, no-op release because releaseSubscriber is idempotent for an
-+        // already-dropped subscription (see FrameBroadcasterRegistry doc).
++        // 释放本会话持有的全部视频订阅者。这是幂等安全网（丢弃每个
++        // (sessionId, displayId) 订阅并关闭随之变空的 broadcaster）；下面每个控制器的
++        // stopVideoInternal() 也会释放自己的订阅者，因 releaseSubscriber 幂等而无副作用。
 +        broadcasterRegistry.releaseSession(sessionId);
 +
-+        // Stop all per-display video controllers. stopVideoInternal() also
-+        // releases the controller's own subscriber — harmless duplicate given
-+        // releaseSubscriber idempotency — and tears down controller/session
-+        // resources that releaseSession() does NOT own (it only touches the
-+        // broadcaster registry).
++        // 停止所有 per-display 视频控制器。stopVideoInternal() 同时释放控制器自身的
++        // 订阅者并拆除 releaseSession() 不管的控制器/会话资源。
 +        List<SessionVideoController> videoCopy = new ArrayList<>(videoControllers.values());
 +        videoControllers.clear();
 +        for (SessionVideoController vc : videoCopy) {
 +            vc.stopVideoInternal();
 +        }
 +
-+        // Stop all per-display controllers and their loops.
++        // 停止所有 per-display controller 及其控制循环。
 +        List<Controller> ctrlCopy = new ArrayList<>(controllers.values());
 +        controllers.clear();
 +        List<ControlLoopRunner> runnerCopy = new ArrayList<>(controlLoopRunners.values());
@@ -501,19 +445,17 @@ index 00000000..794ee96e
 +            c.stop();
 +        }
 +
-+        // Close all sockets BEFORE joining: Thread.interrupt() cannot unblock a
-+        // thread stuck in InputStream.read(), so closing the channels first is
-+        // the only reliable way for the joins below to return when a peer
-+        // disappeared without FIN (half-open connection). Joining first would
-+        // leak this thread, the session entry and every session thread forever.
++        // 先关 socket 再 join：Thread.interrupt() 无法唤醒阻塞在 InputStream.read() 的
++        // 线程，只有当对端未发 FIN（半开连接）时先关闭通道，下面的 join 才能返回。
 +        connection.shutdown();
 +        connection.close();
 +
 +        for (ControlLoopRunner r : runnerCopy) {
 +            try {
 +                r.join(STOP_JOIN_TIMEOUT_MS);
-+                if (r.getThread() != null && r.getThread().isAlive()) {
-+                    Ln.e("Session[" + sessionId + "]: control loop thread " + r.getThread().getName()
++                Thread t = r.getThread();
++                if (t != null && t.isAlive()) {
++                    Ln.e("Session[" + sessionId + "]: control loop thread " + t.getName()
 +                            + " still alive after " + STOP_JOIN_TIMEOUT_MS + "ms; leaking daemon thread");
 +                }
 +            } catch (InterruptedException ignored) {

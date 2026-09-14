@@ -1,6 +1,6 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonArgs.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonArgs.java
 new file mode 100644
-index 00000000..e482b25c
+index 00000000..31ed5f7b
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonArgs.java
 @@ -0,0 +1,154 @@
@@ -11,6 +11,7 @@ index 00000000..e482b25c
 +import java.util.ArrayList;
 +import java.util.Arrays;
 +import java.util.Collections;
++import java.util.HashSet;
 +import java.util.LinkedHashMap;
 +import java.util.List;
 +import java.util.Map;
@@ -29,7 +30,7 @@ index 00000000..e482b25c
 +     * truth so the two filters can never drift apart.
 +     */
 +    private static final Set<String> DAEMON_ONLY_KEYS = Collections.unmodifiableSet(
-+            new java.util.HashSet<>(Arrays.asList(
++            new HashSet<>(Arrays.asList(
 +                    "daemon", "daemon_port", "daemon_bind_address", "daemon_secret_token")));
 +
 +    /**
@@ -60,11 +61,10 @@ index 00000000..e482b25c
 +     * 注意：scrcpy 原生参数键为 display_id（下划线、无 -- 前缀），恒为 key=value 形式。
 +     */
 +    public static String[] changeDisplayId(String[] args, int displayId) {
-+        String[] stripped = strip(args);
 +        List<String> list = new ArrayList<>();
 +        boolean found = false;
 +
-+        for (String arg : stripped) {
++        for (String arg : args) {
 +            if (arg.startsWith("display_id=")) {
 +                list.add("display_id=" + displayId);
 +                found = true;
@@ -91,7 +91,7 @@ index 00000000..e482b25c
 +     */
 +    private static final Set<String> BLOCKED_CONFIGURE_KEYS;
 +    static {
-+        java.util.HashSet<String> blocked = new java.util.HashSet<>(DAEMON_ONLY_KEYS);
++        HashSet<String> blocked = new HashSet<>(DAEMON_ONLY_KEYS);
 +        blocked.addAll(Arrays.asList(
 +                "display_id", "new_display", "scid", "tunnel_forward",
 +                "cleanup", "power_on", "power_off_on_close",
@@ -116,7 +116,7 @@ index 00000000..e482b25c
 +     */
 +    public static String[] mergeOptions(String[] baseArgs, String optionsKv) {
 +        if (baseArgs == null || baseArgs.length == 0) {
-+            return new String[0];
++            throw new IllegalArgumentException("baseArgs must contain at least the client version string");
 +        }
 +
 +        // Preserve insertion order so the merged args stay deterministic.

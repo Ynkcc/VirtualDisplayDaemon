@@ -3,13 +3,16 @@
 本目录保存 VirtualDisplay daemon 对 scrcpy 子模块 `server/` 的补丁集合。
 补丁路径前缀（`server/...`、`gradlew`）相对目标仓库根 **`daemon/scrcpy`**。
 
-共 **60 个补丁**：39 个新增文件 + 21 个修改上游文件。
+共 **59 个补丁**：38 个新增文件 + 21 个修改上游文件。
 
-> 应用工具：`./apply.sh`（支持 `list` / `check` / `apply` / `reverse`），见文末。
+> 应用工具：`../tools/apply_patches.sh`（`--force` 可先还原 baseline 再重放）、
+> `../tools/test_compilation.sh`（reset 到 pristine master → 重放 → 编译）。
+> `./apply.sh`（`list` / `check` / `apply` / `reverse`）仍可用于逐个查看补丁状态。
+> 单个补丁的生成：`../tools/gen_patch.sh <相对 scrcpy 根的路径>`，把输出重定向到本目录同名 `.patch`。
 
 ---
 
-## 1. 新增文件（39 个）
+## 1. 新增文件（38 个）
 
 按包分组。这些是 daemon 模式新增的独立实现，**无相互依赖**，可任意序应用，
 但需在引用它们的「修改上游」补丁之前应用（保证编译正确）。
@@ -25,14 +28,13 @@
 | `video/ExternalDisplayProvider.java.patch` | `server/.../video/ExternalDisplayProvider.java` | `ScreenCapture`（修改）、`DisplaySurfaceBroker` |
 | `video/FrameSink.java.patch` | `server/.../video/FrameSink.java` | `Streamer`/`SurfaceEncoder`（修改）、`FrameBroadcaster` |
 
-### 1.3 daemon（36）
+### 1.3 daemon（35）
 `daemon/` 包为 daemon 模式的核心，内部有包级依赖，但均为新增、互相可解析：
 
 | 补丁 | 目标文件 |
 |---|---|
 | `daemon/ClientSession.java.patch` | `daemon/ClientSession.java` |
 | `daemon/compat/DisplayCompat.java.patch` | `daemon/compat/DisplayCompat.java` |
-| `daemon/control/CommandContext.java.patch` | `daemon/control/CommandContext.java` |
 | `daemon/control/CommandHandler.java.patch` | `daemon/control/CommandHandler.java` |
 | `daemon/control/DaemonCommandHandler.java.patch` | `daemon/control/DaemonCommandHandler.java` |
 | `daemon/control/DaemonControlMessage.java.patch` | `daemon/control/DaemonControlMessage.java` |
@@ -40,7 +42,6 @@
 | `daemon/control/DaemonDeviceMessage.java.patch` | `daemon/control/DaemonDeviceMessage.java` |
 | `daemon/control/DaemonDeviceMessageWriter.java.patch` | `daemon/control/DaemonDeviceMessageWriter.java` |
 | `daemon/control/DaemonMessages.java.patch` | `daemon/control/DaemonMessages.java` |
-| `daemon/control/DaemonWire.java.patch` | `daemon/control/DaemonWire.java` |
 | `daemon/control/ExecutionPolicy.java.patch` | `daemon/control/ExecutionPolicy.java` |
 | `daemon/control/ExtensionCarrier.java.patch` | `daemon/control/ExtensionCarrier.java` |
 | `daemon/ControlLoopRunner.java.patch` | `daemon/ControlLoopRunner.java` |
@@ -56,12 +57,12 @@
 | `daemon/display/RotationController.java.patch` | `daemon/display/RotationController.java` |
 | `daemon/display/VirtualDisplayRegistry.java.patch` | `daemon/display/VirtualDisplayRegistry.java` |
 | `daemon/display/VirtualDisplaySession.java.patch` | `daemon/display/VirtualDisplaySession.java` |
+| `daemon/net/DaemonWire.java.patch` | `daemon/net/DaemonWire.java` |
 | `daemon/net/InstanceMutex.java.patch` | `daemon/net/InstanceMutex.java` |
 | `daemon/net/TcpDesktopConnection.java.patch` | `daemon/net/TcpDesktopConnection.java` |
 | `daemon/net/TcpServerSocketListener.java.patch` | `daemon/net/TcpServerSocketListener.java` |
 | `daemon/SessionConfigurator.java.patch` | `daemon/SessionConfigurator.java` |
 | `daemon/SessionVideoController.java.patch` | `daemon/SessionVideoController.java` |
-| `daemon/VideoController.java.patch` | `daemon/VideoController.java` |
 | `daemon/video/ByteArrayPool.java.patch` | `daemon/video/ByteArrayPool.java` |
 | `daemon/video/FrameBroadcaster.java.patch` | `daemon/video/FrameBroadcaster.java` |
 | `daemon/video/FrameBroadcasterRegistry.java.patch` | `daemon/video/FrameBroadcasterRegistry.java` |
@@ -70,13 +71,13 @@
 
 ---
 
-## 2. 修改上游文件（20 个）
+## 2. 修改上游文件（21 个）
 
 这些补丁在**现有 scrcpy 文件**上做增量修改，引用部分新增类。应在新增之后应用。
 
 | 补丁 | 目标文件 | 依赖的新增/关键改动 |
 |---|---|---|
-| `gradlew.patch` | `gradlew` | 无（构建脚本） |
+| `gradlew.patch` | `gradlew` | 无（构建脚本，注入 Java 21 自动探测） |
 | `server/build.gradle.patch` | `server/build.gradle` | 无 |
 | `server/.gitignore.patch` | `server/.gitignore` | 无 |
 | `control/ControlChannel.java.patch` | `control/ControlChannel.java` | 构造函数改为 `InputStream`/`OutputStream` |
@@ -86,6 +87,7 @@
 | `control/DeviceMessage.java.patch` | `control/DeviceMessage.java` | 新增 `extensionPayload` + `createEmpty()` + `implements ExtensionCarrier` |
 | `control/DeviceMessageSender.java.patch` | `control/DeviceMessageSender.java` | 队列 16→64 |
 | `control/DeviceMessageWriter.java.patch` | `control/DeviceMessageWriter.java` | → `DaemonDeviceMessageWriter`（新增） |
+| `control/UhidManager.java.patch` | `control/UhidManager.java` | daemon 模式下的 UHID 适配 |
 | `device/DesktopConnection.java.patch` | `device/DesktopConnection.java` | 适配 `ControlChannel` 新构造 |
 | `device/Device.java.patch` | `device/Device.java` | 输入注入支持 `displayId>=0` |
 | `device/Streamer.java.patch` | `device/Streamer.java` | `implements FrameSink`（新增） |
@@ -102,7 +104,7 @@
 ## 3. 应用顺序与依赖说明
 
 1. **先新增、后修改**。所有新增文件（§1）在前，修改文件（§2）在后。
-   `apply.sh` 已强制该顺序，无需手工排序。
+   `apply_patches.sh` 已按 `patches_queue/server/` 下的排序应用，无需手工排序。
 2. **接口先行**：`ControlMessageExtension`、`ExternalDisplayProvider`、`FrameSink`、
    `ExtensionCarrier`、`DaemonMessages`、`DaemonWire`、`RefCountedDisplayRegistry`
    被修改类直接实现/引用，务必在引用类之前落盘。
@@ -135,6 +137,7 @@
 - **APPLIED**：目标已包含该改动（可用 `--reverse` 撤销）。
 - **CONFLICT**：目标工作区已漂移（内容与补丁基线不一致），需人工处理。
 
-> 注意：当前 `daemon/scrcpy` 工作区已包含 daemon 改动，`apply.sh check` 大概率
-> 会将多数补丁标为 **CONFLICT**。这表示「补丁与工作区现况不一致」，并非错误；
-> 若需从干净基线重放，请先在 scrcpy 仓库 `git stash` / 重置工作区后再 `apply`。
+> 注意：由于 scrcpy 工作区本身就是补丁的物化结果，`apply.sh check` 会把多数补丁标为
+> **CONFLICT**。这表示「补丁与工作区现况不一致」，并非错误；若需从干净基线重放，
+> 请使用 `../tools/apply_patches.sh --force`（会先 `git checkout`/`git clean` 还原
+> baseline 再重放），或 `../tools/test_compilation.sh`（额外执行一次编译验证）。

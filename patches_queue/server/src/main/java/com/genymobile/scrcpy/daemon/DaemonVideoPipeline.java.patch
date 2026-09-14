@@ -1,13 +1,14 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java
 new file mode 100644
-index 00000000..838c5a1e
+index 00000000..0a8ae2f9
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonVideoPipeline.java
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,121 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
 +import com.genymobile.scrcpy.control.Controller;
++import com.genymobile.scrcpy.control.PositionMapper;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
 +import com.genymobile.scrcpy.video.FrameSink;
 +import com.genymobile.scrcpy.video.ScreenCapture;
@@ -16,34 +17,27 @@ index 00000000..838c5a1e
 +import com.genymobile.scrcpy.video.VirtualDisplayListener;
 +
 +/**
-+ * core/video factory: builds the shared capture+encode pipeline for a
-+ * {@link com.genymobile.scrcpy.daemon.video.FrameBroadcaster}.
++ * 共享 capture+encode 管线的工厂：为
++ * {@link com.genymobile.scrcpy.daemon.video.FrameBroadcaster} 构建
++ * {@link ScreenCapture} → {@link SurfaceEncoder} 组合。
 + *
-+ * <p>This is the single daemon class that concentrates imports of upstream
-+ * {@code video/ScreenCapture} and {@code video/SurfaceEncoder}, keeping the
-+ * upstream-coupling knowledge in one place. The owning
-+ * {@code FrameBroadcaster} only holds the built references and drives their
-+ * lifecycle.
-+ *
-+ * <p>Unlike the former per-session {@code build()}, {@link #buildBroadcaster}
-+ * takes a {@link FrameSink} (the broadcaster itself) instead of a socket FD:
-+ * the shared encoder writes to the broadcaster, which fans out to N
-+ * subscriber sockets. No {@code Streamer} is constructed here — each
-+ * subscriber owns its own {@code Streamer} wrapping its own socket FD.
++ * <p>本类是 daemon 中唯一集中引用上游 {@code video/ScreenCapture} 与
++ * {@code video/SurfaceEncoder} 的地方，把上游耦合收敛到一处。编码器写入
++ * {@link FrameSink}（即 broadcaster），由后者向 N 个订阅者分发；每个订阅者各自
++ * 持有包装自己 socket FD 的 {@code Streamer}。
 + */
 +public final class DaemonVideoPipeline {
 +
 +    /**
-+     * Mutable VirtualDisplayListener indirection. The broadcaster may be created
-+     * before the control socket (video-first ordering), at which point no
-+     * Controller exists. The proxy caches the last (virtualDisplayId,
-+     * PositionMapper) notification and re-delivers it whenever a delegate is
-+     * bound, so a late-binding Controller still receives its display data.
++     * 可变的 VirtualDisplayListener 中转。broadcaster 可能在控制 socket 之前创建
++     * （video-first 顺序），此时尚无 Controller。代理缓存最近一次
++     * (virtualDisplayId, PositionMapper) 通知，并在绑定 delegate 时重投，使迟绑定的
++     * Controller 仍能收到显示数据。
 +     */
 +    public static final class VdListenerProxy implements VirtualDisplayListener {
 +        private volatile VirtualDisplayListener delegate = (virtualDisplayId, positionMapper) -> { };
 +        private int virtualDisplayId = -1;
-+        private com.genymobile.scrcpy.control.PositionMapper positionMapper;
++        private PositionMapper positionMapper;
 +
 +        public synchronized void setDelegate(VirtualDisplayListener newDelegate) {
 +            delegate = newDelegate;
@@ -53,7 +47,7 @@ index 00000000..838c5a1e
 +        }
 +
 +        @Override
-+        public synchronized void onNewVirtualDisplay(int virtualDisplayId, com.genymobile.scrcpy.control.PositionMapper positionMapper) {
++        public synchronized void onNewVirtualDisplay(int virtualDisplayId, PositionMapper positionMapper) {
 +            this.virtualDisplayId = virtualDisplayId;
 +            this.positionMapper = positionMapper;
 +            delegate.onNewVirtualDisplay(virtualDisplayId, positionMapper);
@@ -90,30 +84,23 @@ index 00000000..838c5a1e
 +    }
 +
 +    /**
-+     * Build the shared capture+encode pipeline for a broadcaster.
++     * 为 broadcaster 构建共享 capture+encode 管线：改写 base args 的 {@code display_id} 并
++     * 重新解析 options，然后接线 {@link ScreenCapture}（注入 daemon 的
++     * {@link DisplaySurfaceBroker} 作为 {@code ExternalDisplayProvider}）→
++     * {@link SurfaceEncoder} 写入 {@code sink}。
 +     *
-+     * <p>Mirrors the construction previously inlined in the old per-session
-+     * {@code build()}: rewrite {@code display_id} in the base args, re-parse
-+     * options, then wire {@link ScreenCapture} (with the daemon
-+     * {@link DisplaySurfaceBroker} injected as {@code ExternalDisplayProvider})
-+     * → {@link SurfaceEncoder} writing to {@code sink} (the broadcaster).
++     * <p>刻意不调用 {@code controller.setSurfaceCapture()}：capture 为所有订阅者共享，
++     * 不能被任一会话的 controller 改写；resize 走 {@code FrameBroadcasterRegistry}。
 +     *
-+     * <p>Deliberately does <b>not</b> call {@code controller.setSurfaceCapture()}:
-+     * the capture is shared across all subscribers and must not be mutated by
-+     * any one session's controller. {@code TYPE_RESIZE_VIRTUAL_DISPLAY} now
-+     * routes through {@code FrameBroadcasterRegistry} instead of the
-+     * per-session controller's surfaceCapture.
-+     *
-+     * @param displayId     target display id for this stream
-+     * @param baseArgs      the scrubbed scrcpy args (display_id will be rewritten)
-+     * @param options       the base session options (codec / stream-meta flags come from here)
-+     * @param surfaceBroker daemon-managed external display provider
-+     * @param controller    the first subscriber's controller (used as
-+     *                      {@code VirtualDisplayListener}); may be {@code null}
-+     *                      in which case a no-op listener is used
-+     * @param sink          the broadcaster (FrameSink) that receives encoded packets
-+     * @return a {@link Built} holder referencing the freshly created pipeline
-+     * @throws Exception if option parsing or pipeline construction fails (caller handles)
++     * @param displayId     目标显示器 id
++     * @param baseArgs      已清洗的 scrcpy 参数（display_id 会被改写）
++     * @param options       基础会话 options（codec / stream-meta 标志来自这里）
++     * @param surfaceBroker daemon 管理的 external display provider
++     * @param controller    首个订阅者的 controller（作为 {@code VirtualDisplayListener}），
++     *                      可为 {@code null}
++     * @param sink          接收编码包的 broadcaster（FrameSink）
++     * @return 引用新建管线的 {@link Built}
++     * @throws Exception option 解析或管线构建失败（由调用方处理）
 +     */
 +    public static Built buildBroadcaster(int displayId, String[] baseArgs, Options options,
 +                                         DisplaySurfaceBroker surfaceBroker,
@@ -121,15 +108,12 @@ index 00000000..838c5a1e
 +        String[] modifiedArgs = DaemonArgs.changeDisplayId(baseArgs, displayId);
 +        Options captureOptions = Options.parse(modifiedArgs);
 +
-+        // ScreenCapture needs a VirtualDisplayListener; Controller implements it. When the
-+        // controller is not yet wired (control socket not bound), fall back to a no-op listener
-+        // so the capture can still be constructed.
++        // ScreenCapture 需要 VirtualDisplayListener；controller 尚未接线时（控制 socket 未
++        // 绑定）用代理兜底，使 capture 仍可构造，并支持后续 setDelegate() 迟绑定。
 +        VirtualDisplayListener listener;
 +        if (controller != null) {
 +            listener = controller;
 +        } else {
-+            // No controller yet (video socket arrived first): bind a proxy so a
-+            // late-binding controller can still be wired via setDelegate().
 +            listener = new VdListenerProxy();
 +        }
 +        ScreenCapture screen = new ScreenCapture(listener, captureOptions);

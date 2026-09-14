@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
 new file mode 100644
-index 00000000..584213d5
+index 00000000..2686a188
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/display/VirtualDisplayRegistry.java
-@@ -0,0 +1,509 @@
+@@ -0,0 +1,503 @@
 +package com.genymobile.scrcpy.daemon.display;
 +
 +import com.genymobile.scrcpy.daemon.compat.DisplayCompat;
@@ -31,14 +31,11 @@ index 00000000..584213d5
 +
 +    private final Map<Integer, VirtualDisplaySession> activeSessions = new HashMap<>();
 +
-+    // Per-session reference counting (Step 3, VD 所有权) lives in the shared
-+    // RefCountedDisplayRegistry base: displayId → (sessionId → refcount). The
-+    // display is destroyed only when ALL sessions' counts drop to zero. Using a
-+    // refcount per session (rather than a Set) correctly handles the case where
-+    // a single session both creates the display AND streams from it: the
-+    // creator's ref and the streamer's ref are tracked independently, so
-+    // stopping the stream (one release) does NOT destroy the display as long as
-+    // the creator's ref remains ("lossless recovery" from refs/13 §7).
++    // per-session 引用计数位于共享基类 RefCountedDisplayRegistry：
++    // displayId → (sessionId → refcount)。仅当所有会话的计数归零才销毁显示器。
++    // 用 per-session 计数（而非 Set）才能正确处理"同一会话既创建又串流"：
++    // 创建者引用与串流者引用独立计数，停止串流（一次 release）不会销毁仍被
++    // 创建者引用的显示器。
 +
 +    public VirtualDisplayRegistry() {
 +    }
@@ -209,19 +206,16 @@ index 00000000..584213d5
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // Step 3: per-session reference counting (VD 所有权)
++    // per-session 引用计数（VD 所有权）
 +    // ------------------------------------------------------------------
 +
 +    /**
-+     * Register a session as a user of the given virtual display. Must be called
-+     * after {@link #createVirtualDisplay} (for the creator) or before
-+     * {@code START_VIDEO_STREAM} (for a streamer attaching to an existing VD).
++     * 将 session 登记为给定虚拟显示器的使用者。创建者应在
++     * {@link #createVirtualDisplay} 之后调用；接入已有 VD 的串流会话在启动视频前调用。
 +     *
-+     * <p>Each call increments the per-session refcount, so CREATE + STREAM from
-+     * the same session yields a refcount of 2 — stopping the stream (one
-+     * release) leaves the creator's ref intact, keeping the display alive. This
-+     * is essential for re-bind: a session can close and re-open its video socket
-+     * without destroying the display it created.
++     * <p>每次调用递增 per-session 引用计数：同一会话 CREATE + STREAM 会得到计数 2，
++     * 因此停止串流（一次 release）不会销毁它创建的显示器——这是重绑的关键：会话可以
++     * 关闭并重新打开视频 socket 而不销毁自己创建的显示器。
 +     */
 +    public void acquire(int displayId, int sessionId) {
 +        synchronized (lock) {
@@ -453,7 +447,7 @@ index 00000000..584213d5
 +     * @return array of DisplayInfo, one per active virtual display; entries
 +     *         whose DisplayInfo cannot be resolved are omitted
 +     */
-+    public com.genymobile.scrcpy.display.DisplayInfo[] getActiveDisplayInfos() {
++    public DisplayInfo[] getActiveDisplayInfos() {
 +        int[] ids = getActiveDisplayIds();
 +
 +        // Snapshot active sessions to avoid holding the lock during getDisplayInfo() calls
@@ -462,10 +456,10 @@ index 00000000..584213d5
 +            sessionsSnapshot = new HashMap<>(activeSessions);
 +        }
 +
-+        java.util.List<com.genymobile.scrcpy.display.DisplayInfo> result = new java.util.ArrayList<>(ids.length);
++        List<DisplayInfo> result = new ArrayList<>(ids.length);
 +        for (int id : ids) {
 +            try {
-+                com.genymobile.scrcpy.display.DisplayInfo info = ServiceManager.getDisplayManager().getDisplayInfo(id);
++                DisplayInfo info = ServiceManager.getDisplayManager().getDisplayInfo(id);
 +                if (info != null) {
 +                    int mirrorDisplayId = -1;
 +                    boolean owned = false;
@@ -474,7 +468,7 @@ index 00000000..584213d5
 +                        mirrorDisplayId = session.getMirrorDisplayId();
 +                        owned = true;
 +                    }
-+                    com.genymobile.scrcpy.display.DisplayInfo enrichedInfo = new com.genymobile.scrcpy.display.DisplayInfo(
++                    DisplayInfo enrichedInfo = new DisplayInfo(
 +                        info.getDisplayId(),
 +                        info.getSize(),
 +                        info.getRotation(),
@@ -495,7 +489,7 @@ index 00000000..584213d5
 +                Ln.w("VirtualDisplayRegistry: failed to query DisplayInfo for displayId=" + id, t);
 +            }
 +        }
-+        return result.toArray(new com.genymobile.scrcpy.display.DisplayInfo[0]);
++        return result.toArray(new DisplayInfo[0]);
 +    }
 +
 +    public void releaseAll() {

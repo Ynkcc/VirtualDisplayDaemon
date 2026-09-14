@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
-index 0768181a..6b117738 100644
+index 0768181a..370242b9 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/video/ScreenCapture.java
 @@ -31,12 +31,38 @@ import java.util.Locale;
@@ -59,7 +59,7 @@ index 0768181a..6b117738 100644
  
          Size inputSize;
          if (transform != null) {
-@@ -132,27 +163,34 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -132,46 +163,124 @@ public class ScreenCapture extends SurfaceCapture {
          try {
              virtualDisplay = ServiceManager.getDisplayManager()
                      .createVirtualDisplay("scrcpy", inputSize.getWidth(), inputSize.getHeight(), displayId, surface);
@@ -114,20 +114,42 @@ index 0768181a..6b117738 100644
                  }
              }
          }
-@@ -168,18 +206,110 @@ public class ScreenCapture extends SurfaceCapture {
-             } else {
-                 // The positions are relative to the virtual display, not the original display (so use inputSize, not deviceSize!)
-                 positionMapper = PositionMapper.create(videoSize, transform, inputSize);
--                virtualDisplayId = virtualDisplay.getDisplay().getDisplayId();
-+                // Always inject touch events into the ORIGINAL display (displayId)
-+                // rather than the newly-created mirror virtual display, so that input
-+                // reaches the user-created virtual display instead of the capture mirror.
-+                virtualDisplayId = displayId;
-             }
-             vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
-         }
-     }
  
+         if (vdListener != null) {
+-            int virtualDisplayId;
+-            PositionMapper positionMapper;
+-            if (virtualDisplay == null || displayId == 0) {
+-                // Surface control or main display: send all events to the original display, relative to the device size
+-                Size deviceSize = displayInfo.getSize();
+-                positionMapper = PositionMapper.create(videoSize, transform, deviceSize);
+-                virtualDisplayId = displayId;
+-            } else {
+-                // The positions are relative to the virtual display, not the original display (so use inputSize, not deviceSize!)
+-                positionMapper = PositionMapper.create(videoSize, transform, inputSize);
+-                virtualDisplayId = virtualDisplay.getDisplay().getDisplayId();
++            // SurfaceControl / 主屏路径按设备尺寸映射；mirror 路径按 inputSize（位置相对
++            // 虚拟显示器内容区）。事件始终注入原始 displayId，而非新建的 mirror 显示器。
++            Size mapperSize = (virtualDisplay == null || displayId == 0) ? displayInfo.getSize() : inputSize;
++            notifyVdListener(displayId, mapperSize);
++        }
++    }
++
++    /** 构造 PositionMapper 并通知 vdListener；mirror 路径与 daemon VD 路径共用。 */
++    private void notifyVdListener(int virtualDisplayId, Size mapperSize) {
++        PositionMapper positionMapper = PositionMapper.create(videoSize, transform, mapperSize);
++        Ln.i("ScreenCapture: notify vdListener id=" + virtualDisplayId + ", mapperSize="
++                + mapperSize.getWidth() + "x" + mapperSize.getHeight());
++        vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
++    }
++
++    /** 查询 displayId 当前逻辑尺寸；查询失败回退 videoSize。 */
++    private Size resolveDisplaySize(int displayId) {
++        DisplayInfo info = displayInfo != null && displayInfo.getDisplayId() == displayId
++                ? displayInfo
++                : ServiceManager.getDisplayManager().getDisplayInfo(displayId);
++        return info != null ? info.getSize() : videoSize;
++    }
++
 +    /**
 +     * Bind the capture surface to a daemon-managed virtual display registered for the current
 +     * {@code displayId}, if any. Returns {@code true} when a daemon virtual display handled the
@@ -146,7 +168,8 @@ index 0768181a..6b117738 100644
 +        try {
 +            if (virtualDisplay != null) {
 +                virtualDisplay.setSurface(null);
-+            }
+             }
+-            vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
 +            // Follow the upstream strategy: the mirror virtual display is (re)created
 +            // at the current display logical size (which is rotation-adjusted), so a
 +            // display rotation is baked into the composed output buffer and the video
@@ -171,52 +194,29 @@ index 0768181a..6b117738 100644
 +            // No requestDisplayPower(): daemon-managed VD is private non-mirrored →
 +            // FLAG_NEVER_BLANK, never blanked by the power manager (see DisplayManager docs).
 +            if (vdListener != null) {
++                // 与上游 start() 语义一致：displayId==0 走主屏路径（设备尺寸）；否则位置相对
++                // 虚拟显示器内容区（有滤镜用 display 逻辑尺寸，无滤镜用编码目标尺寸），
++                // 并上报 daemon VD 的真实 id。
 +                int virtualDisplayId;
-+                PositionMapper positionMapper;
-+                // Match the upstream start() logic exactly (see lines 191-201 above):
-+                //  - virtualDisplay != null (daemonVD is set) AND displayId != 0 → use VD's real id + inputSize
-+                //  - displayId == 0 → main display path
++                Size mapperSize;
 +                if (displayId == 0) {
-+                    Size deviceSize;
-+                    if (displayInfo != null) {
-+                        deviceSize = displayInfo.getSize();
-+                    } else {
-+                        com.genymobile.scrcpy.display.DisplayInfo info = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
-+                        deviceSize = info != null ? info.getSize() : videoSize;
-+                    }
-+                    positionMapper = PositionMapper.create(videoSize, transform, deviceSize);
++                    mapperSize = resolveDisplaySize(displayId);
 +                    virtualDisplayId = displayId;
 +                } else {
-+                    // Positions are relative to the virtual display content area:
-+                    // use the encoded target size (inputSize) when a filter is applied,
-+                    // otherwise the virtual display's own logical size (displaySize).
-+                    Size inputSize;
-+                    if (transform != null) {
-+                        if (displayInfo != null) {
-+                            inputSize = displayInfo.getSize();
-+                        } else {
-+                            com.genymobile.scrcpy.display.DisplayInfo info = ServiceManager.getDisplayManager().getDisplayInfo(daemonVD.getDisplay().getDisplayId());
-+                            inputSize = info != null ? info.getSize() : videoSize;
-+                        }
-+                    } else {
-+                        inputSize = videoSize;
-+                    }
-+                    positionMapper = PositionMapper.create(videoSize, transform, inputSize);
++                    mapperSize = transform != null ? resolveDisplaySize(displayId) : videoSize;
 +                    virtualDisplayId = daemonVD.getDisplay().getDisplayId();
 +                }
-+                Ln.i("ScreenCapture: bindDaemonVirtualDisplay vdListener id=" + virtualDisplayId + " (requested=" + displayId + ")");
-+                vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
++                notifyVdListener(virtualDisplayId, mapperSize);
 +            }
 +        } catch (Exception e) {
 +            Ln.e("ScreenCapture: failed to bind surface to daemon virtual display", e);
 +            throw new IOException("Failed to bind surface to daemon virtual display", e);
-+        }
+         }
 +        return true;
-+    }
-+
+     }
+ 
      @Override
-     public void stop() {
-         if (glRunner != null) {
+@@ -180,6 +289,9 @@ public class ScreenCapture extends SurfaceCapture {
              glRunner.stopAndRelease();
              glRunner = null;
          }
@@ -226,7 +226,7 @@ index 0768181a..6b117738 100644
      }
  
      @Override
-@@ -191,9 +321,15 @@ public class ScreenCapture extends SurfaceCapture {
+@@ -191,9 +303,15 @@ public class ScreenCapture extends SurfaceCapture {
              display = null;
          }
          if (virtualDisplay != null) {

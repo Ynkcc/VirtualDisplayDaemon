@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
 new file mode 100644
-index 00000000..cf040dee
+index 00000000..3d723339
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpServerSocketListener.java
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,155 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -27,7 +27,7 @@ index 00000000..cf040dee
 +    private TcpServerSocketListener() {
 +    }
 +
-+    public static synchronized void initServerSocket(int scid, int customPort, String bindAddress) throws IOException {
++    public static synchronized void initServerSocket(int customPort, String bindAddress) throws IOException {
 +        if (!serverSockets.isEmpty()) {
 +            boolean allAlive = true;
 +            for (ServerSocket ss : serverSockets) {
@@ -42,7 +42,7 @@ index 00000000..cf040dee
 +        }
 +        closeServerSocket();
 +        closed = false;
-+        int port = getPort(scid, customPort);
++        int port = getPort(customPort);
 +
 +        List<String> addressesToBind = new ArrayList<>();
 +        if (bindAddress != null && !bindAddress.isEmpty()) {
@@ -109,10 +109,6 @@ index 00000000..cf040dee
 +        }
 +    }
 +
-+    public static synchronized ServerSocket getServerSocket() {
-+        return serverSockets.isEmpty() ? null : serverSockets.get(0);
-+    }
-+
 +    public static synchronized void closeServerSocket() {
 +        closed = true;
 +        for (ServerSocket ss : serverSockets) {
@@ -156,7 +152,7 @@ index 00000000..cf040dee
 +        throw new IOException("ServerSocket closed");
 +    }
 +
-+    private static int getPort(int scid, int customPort) {
++    private static int getPort(int customPort) {
 +        if (customPort != -1) {
 +            return customPort;
 +        }

@@ -1,5 +1,5 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
-index 55d6e11b..fedcf4b8 100644
+index 55d6e11b..820f9d63 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
 @@ -87,6 +87,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
@@ -89,24 +89,7 @@ index 55d6e11b..fedcf4b8 100644
          DisplayData data = new DisplayData(virtualDisplayId, positionMapper);
          DisplayData old = this.displayData.getAndSet(data);
          if (old == null) {
-@@ -179,6 +209,16 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
-         this.surfaceCapture = surfaceCapture;
-     }
- 
-+    // 供 daemon 模式复用 Controller 内部的 DeviceMessageSender，避免反射访问私有字段
-+    public DeviceMessageSender getDeviceMessageSender() {
-+        return sender;
-+    }
-+
-+    // 供 daemon 模式在切换投屏源时获取当前 SurfaceCapture，避免反射访问私有字段
-+    public SurfaceCapture getSurfaceCapture() {
-+        return surfaceCapture;
-+    }
-+
-     private UhidManager getUhidManager() {
-         if (uhidManager == null) {
-             int uhidDisplayId = displayId;
-@@ -437,6 +477,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -437,6 +467,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              }
          }
  
@@ -117,7 +100,7 @@ index 55d6e11b..fedcf4b8 100644
          throw new AssertionError("Unexpected message type: " + type);
      }
  
-@@ -492,10 +536,14 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -492,10 +526,14 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          if (displayData != null) {
              point = displayData.positionMapper.map(position);
              if (point == null) {
@@ -136,7 +119,7 @@ index 55d6e11b..fedcf4b8 100644
                  }
                  return null;
              }
-@@ -506,6 +554,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -506,6 +544,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
              targetDisplayId = displayId;
          }
  
@@ -147,7 +130,7 @@ index 55d6e11b..fedcf4b8 100644
          return Pair.create(point, targetDisplayId);
      }
  
-@@ -748,6 +800,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -748,6 +790,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private int getActionDisplayId() {
@@ -157,7 +140,7 @@ index 55d6e11b..fedcf4b8 100644
          if (displayId != Device.DISPLAY_ID_NONE) {
              // Real screen mirrored, use the source display id
              return displayId;
-@@ -762,6 +817,18 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -762,6 +807,18 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
          return data.virtualDisplayId;
      }
  
@@ -176,7 +159,7 @@ index 55d6e11b..fedcf4b8 100644
      private void startAppAsync(String name) {
          if (startAppExecutor == null) {
              startAppExecutor = Executors.newSingleThreadExecutor();
-@@ -877,8 +944,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
+@@ -877,8 +934,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
      }
  
      private void resizeDisplay(int width, int height) {

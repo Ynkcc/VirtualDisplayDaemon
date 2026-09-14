@@ -1,16 +1,16 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
 new file mode 100644
-index 00000000..5f77cab8
+index 00000000..7a72f278
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonServer.java
-@@ -0,0 +1,346 @@
+@@ -0,0 +1,352 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import android.os.Looper;
 +
 +import com.genymobile.scrcpy.Options;
-+import com.genymobile.scrcpy.daemon.display.VirtualDisplayRegistry;
 +import com.genymobile.scrcpy.daemon.display.DisplaySurfaceBroker;
++import com.genymobile.scrcpy.daemon.display.VirtualDisplayRegistry;
 +import com.genymobile.scrcpy.daemon.net.InstanceMutex;
 +import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +import com.genymobile.scrcpy.daemon.net.TcpServerSocketListener;
@@ -19,22 +19,27 @@ index 00000000..5f77cab8
 +
 +import java.io.IOException;
 +import java.net.Socket;
++import java.util.ArrayList;
++import java.util.List;
 +import java.util.Map;
 +import java.util.Set;
++import java.util.UUID;
 +import java.util.concurrent.ConcurrentHashMap;
 +import java.util.concurrent.ExecutorService;
 +import java.util.concurrent.Executors;
 +import java.util.concurrent.RejectedExecutionException;
++import java.util.concurrent.TimeUnit;
 +import java.util.concurrent.atomic.AtomicBoolean;
 +import java.util.concurrent.atomic.AtomicInteger;
 +
 +public final class DaemonServer {
 +
 +    private static final int MAX_SESSIONS = 16;
-+    // Upper bound for the auth blacklist: without it, a hostile local peer could
-+    // grow the set unboundedly (one entry per forged source IP on a multi-user
-+    // device). Full set = fail-open with a warning (avoid permanent DoS).
++    // 鉴权黑名单上限：不设上限时，恶意本地对端可用伪造源 IP 无限增长该集合
++    // （多用户设备上每个伪造 IP 一条）。集合满时降级为告警放行（避免永久 DoS）。
 +    private static final int MAX_BLACKLISTED_IPS = 256;
++    // 关闭时等待工作线程退出的上限；超时则 shutdownNow() 并告警。
++    private static final long WORKER_TERMINATION_TIMEOUT_MS = 3000;
 +
 +    private final Options options;
 +    private final DaemonOptions daemonOptions;
@@ -67,9 +72,9 @@ index 00000000..5f77cab8
 +
 +        String token = daemonOptions.getSecretToken();
 +        if ("auto".equalsIgnoreCase(token)) {
-+            token = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-+            // Token must not appear at INFO level: logcat is world-readable and
-+            // the credential would leak to any app on the device. Verbose only.
++            // 128-bit 随机 token（32 个 hex 字符）。
++            token = UUID.randomUUID().toString().replace("-", "");
++            // token 不得出现在 INFO 级：logcat 全局可读，凭据会泄露给设备上任意应用。
 +            Ln.i("AUTOMATIC DAEMON SECRET TOKEN GENERATED (visible at verbose log level)");
 +            Ln.v("daemon secret token: " + token);
 +        }
@@ -80,10 +85,9 @@ index 00000000..5f77cab8
 +        Ln.i("DaemonServer starting on port " + daemonOptions.getPort() + ", bind=" + daemonOptions.getBindAddress());
 +
 +        try {
-+            // Acquire the port-independent single-instance guard BEFORE binding:
-+            // even with a different bind port, a second daemon must fail here.
++            // 先取与端口无关的单实例锁再绑定：即便换了端口，第二个 daemon 也必须在这里失败。
 +            InstanceMutex.acquire(InstanceMutex.DEFAULT_NAME);
-+            TcpServerSocketListener.initServerSocket(options.getScid(), daemonOptions.getPort(), daemonOptions.getBindAddress());
++            TcpServerSocketListener.initServerSocket(daemonOptions.getPort(), daemonOptions.getBindAddress());
 +
 +            acceptExecutor = Executors.newSingleThreadExecutor(r -> {
 +                Thread t = new Thread(r, "daemon-accept");
@@ -98,13 +102,8 @@ index 00000000..5f77cab8
 +                t.setDaemon(true);
 +                return t;
 +            });
-+            // Role sockets (ROLE_CONTROL/VIDEO/AUDIO) are dispatched off the
-+            // single accept thread so a slow/blocked role handler (e.g. a
-+            // stale Controller whose recv() can't be interrupted by stop())
-+            // can never stall socket acceptance for other displays. This is
-+            // the fix for "touch stops working until daemon restart": a stale
-+            // control loop that never returns would otherwise block
-+            // onControlSocket() -> join() forever on the accept thread.
++            // role socket（ROLE_CONTROL/VIDEO/AUDIO）从单线程 accept 线程上分派出去，
++            // 使阻塞的 role 处理器无法拖住其它显示器的 socket 接受。
 +            roleExecutor = Executors.newFixedThreadPool(MAX_SESSIONS, r -> {
 +                Thread t = new Thread(r, "daemon-role");
 +                t.setDaemon(true);
@@ -113,10 +112,12 @@ index 00000000..5f77cab8
 +
 +            acceptExecutor.submit(this::acceptLoop);
 +
++            // 带超时的等待：即使 notify 丢失（如 accept 线程异常死亡），也能周期性地
++            // 复查 running 并退出，避免 run() 永久阻塞。
 +            try {
 +                synchronized (running) {
 +                    while (running.get()) {
-+                        running.wait();
++                        running.wait(1000);
 +                    }
 +                }
 +            } catch (InterruptedException e) {
@@ -135,13 +136,13 @@ index 00000000..5f77cab8
 +                String ip = socket.getInetAddress().getHostAddress();
 +                if (blacklistedIps.contains(ip)) {
 +                    Ln.w("Connection rejected from blacklisted IP: " + ip);
-+                    socket.close();
++                    TcpDesktopConnection.closeQuietly(socket);
 +                    continue;
 +                }
 +
 +                if (sessions.size() >= MAX_SESSIONS) {
 +                    Ln.w("Connection rejected: maximum sessions reached (" + MAX_SESSIONS + ")");
-+                    socket.close();
++                    TcpDesktopConnection.closeQuietly(socket);
 +                    continue;
 +                }
 +
@@ -149,10 +150,10 @@ index 00000000..5f77cab8
 +                try {
 +                    role = TcpDesktopConnection.readSocketRole(socket);
 +                } catch (IOException e) {
-+                    // SocketTimeoutException lands here too (handshake timeout).
-+                    Ln.w("Failed to read socket role: " + e.getClass().getSimpleName()
-+                            + (e.getMessage() != null ? ": " + e.getMessage() : "") + " from " + ip);
-+                    socket.close();
++                    // SocketTimeoutException（握手超时）也走这里。
++                    Ln.w("Failed to read socket role from " + ip + ": " + e.getClass().getSimpleName()
++                            + (e.getMessage() != null ? ": " + e.getMessage() : ""));
++                    TcpDesktopConnection.closeQuietly(socket);
 +                    continue;
 +                }
 +
@@ -163,30 +164,26 @@ index 00000000..5f77cab8
 +                    case TcpDesktopConnection.ROLE_CONTROL:
 +                    case TcpDesktopConnection.ROLE_VIDEO:
 +                    case TcpDesktopConnection.ROLE_AUDIO:
-+                        // Dispatch off the accept thread. Negotiation stays
-+                        // inline (it only creates the session), but role
-+                        // handlers may block; never stall the accept loop.
++                        // 从 accept 线程分派出去：协商保持内联（只创建会话），但 role
++                        // 处理器可能阻塞，绝不能拖住 accept 循环。
 +                        try {
 +                            roleExecutor.execute(() -> handleRoleSocket(role, socket));
 +                        } catch (RejectedExecutionException e) {
 +                            Ln.w("Role socket rejected (roleExecutor shut down?)");
-+                            try { socket.close(); } catch (IOException closeEx) {
-+                                Ln.d("Failed to close rejected role socket: " + closeEx.getMessage());
-+                            }
++                            TcpDesktopConnection.closeQuietly(socket);
 +                        }
 +                        break;
 +                    default:
 +                        Ln.w("Unknown socket role: " + role);
-+                        socket.close();
++                        TcpDesktopConnection.closeQuietly(socket);
 +                }
 +            } catch (IOException e) {
 +                if (running.get()) {
 +                    Ln.w("Accept loop error: " + e.getMessage());
 +                }
 +            } catch (RuntimeException e) {
-+                // A RuntimeException here must never kill the accept thread:
-+                // that would leave the daemon silently deaf to all new
-+                // connections while old sessions keep running.
++                // accept 线程绝不能因 RuntimeException 退出：那会让 daemon 对新连接
++                // 彻底失聪，而旧会话仍在运行。
 +                if (running.get()) {
 +                    Ln.e("Accept loop unexpected error", e);
 +                }
@@ -204,53 +201,46 @@ index 00000000..5f77cab8
 +    }
 +
 +    private void handleNegotiationSocket(Socket socket) {
-+        // Atomically reserve a session id in [1, Integer.MAX_VALUE]; wrap to 1
-+        // on overflow. getAndUpdate is atomic, unlike the previous
-+        // getAndIncrement + non-atomic reset-to-1 which could let two
-+        // concurrent callers both pick the same (possibly 0 or negative) id.
++        // 在 [1, Integer.MAX_VALUE] 内原子分配 session id，溢出时回绕到 1。
++        // getAndUpdate 是原子的；回绕后需避开仍在活动中的 id。
 +        int sessionId;
 +        do {
 +            sessionId = nextSessionId.getAndUpdate(prev -> prev >= Integer.MAX_VALUE ? 1 : prev + 1);
-+        } while (sessions.containsKey(sessionId)); // id wrap-around must not collide with a live session
++        } while (sessions.containsKey(sessionId));
 +
 +        try {
 +            TcpDesktopConnection.writeSessionId(socket, sessionId);
 +        } catch (IOException e) {
 +            Ln.w("Failed to write sessionId: " + e.getMessage());
-+            try { socket.close(); } catch (IOException closeEx) {
-+                Ln.d("Failed to close negotiation socket after sessionId write failure: " + closeEx.getMessage());
-+            }
++            TcpDesktopConnection.closeQuietly(socket);
 +            return;
 +        }
 +
 +        if (secretToken != null) {
++            String ip = socket.getInetAddress().getHostAddress();
 +            try {
 +                if (!TcpDesktopConnection.authenticate(socket, secretToken)) {
-+                    String ip = socket.getInetAddress().getHostAddress();
 +                    blacklistIp(ip);
 +                    Ln.w("Authentication failed for IP: " + ip + ". IP blacklisted.");
-+                    try { socket.close(); } catch (IOException ignored) {}
++                    TcpDesktopConnection.closeQuietly(socket);
 +                    return;
 +                }
 +            } catch (Exception e) {
-+                String ip = socket.getInetAddress().getHostAddress();
 +                blacklistIp(ip);
 +                Ln.w("Authentication error for IP: " + ip + ". IP blacklisted. Error: " + e.getMessage());
-+                try { socket.close(); } catch (IOException ignored) {}
++                TcpDesktopConnection.closeQuietly(socket);
 +                return;
 +            }
 +        }
 +
 +        ClientSession session;
 +        try {
-+            // Negotiation handshake done — enter the long-lived data phase.
++            // 协商握手结束，进入长驻数据阶段。
 +            TcpDesktopConnection.clearSoTimeout(socket);
 +            session = new ClientSession(socket, sessionId, options, baseArgs, registry, surfaceBroker, exitCoordinator, this, broadcasterRegistry);
 +        } catch (IOException e) {
 +            Ln.w("Failed to create client session: " + e.getMessage());
-+            try { socket.close(); } catch (IOException closeEx) {
-+                Ln.d("Failed to close negotiation socket after session creation failure: " + closeEx.getMessage());
-+            }
++            TcpDesktopConnection.closeQuietly(socket);
 +            return;
 +        }
 +
@@ -260,9 +250,8 @@ index 00000000..5f77cab8
 +        try {
 +            clientExecutor.submit(session);
 +        } catch (RejectedExecutionException e) {
-+            // Executor was shut down between accept and submit (during daemon
-+            // shutdown). Remove the map entry and tear down the session so the
-+            // socket does not leak.
++            // 执行器在 accept 与 submit 之间被关闭（daemon 正在退出）：移除表项并拆掉会话，
++            // 避免 socket 泄漏。
 +            Ln.w("DaemonServer: rejected session " + sessionId + " (executor shut down?), cleaning up");
 +            sessions.remove(sessionId);
 +            session.shutdown();
@@ -276,10 +265,10 @@ index 00000000..5f77cab8
 +            ClientSession session = sessions.get(sessionId);
 +            if (session == null) {
 +                Ln.w("Socket for role " + role + " for unknown session " + sessionId);
-+                socket.close();
++                TcpDesktopConnection.closeQuietly(socket);
 +                return;
 +            }
-+            // Role handshake done — enter the long-lived data phase.
++            // role 握手结束，进入长驻数据阶段。
 +            TcpDesktopConnection.clearSoTimeout(socket);
 +            switch (role) {
 +                case TcpDesktopConnection.ROLE_CONTROL:
@@ -293,16 +282,12 @@ index 00000000..5f77cab8
 +                    break;
 +                default:
 +                    Ln.w("Unexpected role in handleRoleSocket: " + role);
-+                    socket.close();
++                    TcpDesktopConnection.closeQuietly(socket);
 +                    break;
 +            }
 +        } catch (IOException e) {
 +            Ln.w("Failed to handle role " + role + " socket: " + e.getMessage());
-+            try {
-+                socket.close();
-+            } catch (IOException closeEx) {
-+                Ln.d("Failed to close socket after handling error: " + closeEx.getMessage());
-+            }
++            TcpDesktopConnection.closeQuietly(socket);
 +        }
 +    }
 +
@@ -314,24 +299,45 @@ index 00000000..5f77cab8
 +        }
 +        sessions.clear();
 +
++        // 先停 encoder 再销毁虚拟显示器：运行中的 encoder 捕获持有一份 VD surface 引用。
 +        if (broadcasterRegistry != null) {
-+            // Stop all encoders BEFORE destroying the virtual displays: a
-+            // running encoder's capture holds a reference to the VD surface.
 +            broadcasterRegistry.releaseAll();
 +        }
-+
 +        if (registry != null) {
 +            registry.releaseAll();
 +        }
 +
++        List<ExecutorService> executors = new ArrayList<>(3);
++        List<String> names = new ArrayList<>(3);
 +        if (acceptExecutor != null) {
-+            acceptExecutor.shutdown();
++            executors.add(acceptExecutor);
++            names.add("accept");
 +        }
 +        if (clientExecutor != null) {
-+            clientExecutor.shutdown();
++            executors.add(clientExecutor);
++            names.add("client");
 +        }
 +        if (roleExecutor != null) {
-+            roleExecutor.shutdown();
++            executors.add(roleExecutor);
++            names.add("role");
++        }
++        for (ExecutorService executor : executors) {
++            executor.shutdown();
++        }
++        // 等待工作线程真正退出后再释放监听端口与单实例锁，否则新实例可能在旧线程
++        // 仍在运行时启动。
++        for (int i = 0; i < executors.size(); i++) {
++            ExecutorService executor = executors.get(i);
++            try {
++                if (!executor.awaitTermination(WORKER_TERMINATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
++                    Ln.w("DaemonServer: " + names.get(i) + " executor did not terminate within "
++                            + WORKER_TERMINATION_TIMEOUT_MS + "ms; forcing shutdownNow");
++                    executor.shutdownNow();
++                }
++            } catch (InterruptedException e) {
++                Thread.currentThread().interrupt();
++                executor.shutdownNow();
++            }
 +        }
 +
 +        TcpServerSocketListener.closeServerSocket();

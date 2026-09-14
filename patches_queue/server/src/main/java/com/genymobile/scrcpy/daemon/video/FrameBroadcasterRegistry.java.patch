@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
 new file mode 100644
-index 00000000..4146907d
+index 00000000..2870ef2d
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/FrameBroadcasterRegistry.java
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,210 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.Options;
@@ -19,27 +19,20 @@ index 00000000..4146907d
 +import java.util.Map;
 +
 +/**
-+ * Reference-counted registry of {@link FrameBroadcaster}s, keyed by
-+ * {@code displayId}. A broadcaster is created on the first subscriber for a
-+ * displayId and torn down when its last subscriber leaves.
++ * 按 {@code displayId} 分组的引用计数 {@link FrameBroadcaster} 注册表：首个订阅者到来时
++ * 创建 broadcaster，最后一个订阅者离开时拆除。
 + *
-+ * <p>This is the encoder/broadcast counterpart to {@code VirtualDisplayRegistry}'s
-+ * virtual-display refcount (A9): {@code VirtualDisplayRegistry} owns VD
-+ * lifetime (creators + streamers), this registry owns encoder/broadcaster
-+ * lifetime (subscribers). The two are independent — a VD can survive with zero
-+ * subscribers (lossless recovery), and a broadcaster is rebuilt afresh each
-+ * time a subscriber reappears.
++ * <p>它与 {@code VirtualDisplayRegistry} 的 VD 引用计数相互独立：后者管 VD 生命周期
++ * （创建者 + 串流者），本类管 encoder/broadcaster 生命周期（订阅者）。VD 可在零订阅者时
++ * 存活，而 broadcaster 会随订阅者重新出现而重建。
 + *
-+ * <p>The per-session reference counting (displayId → sessionId → count) and the
-+ * {@code lock} are inherited from {@link RefCountedDisplayRegistry}.
++ * <p>per-session 引用计数与 {@link #lock} 均继承自 {@link RefCountedDisplayRegistry}。
 + *
-+ * <h3>Concurrency</h3>
-+ * All get-or-create / subscribe / unsubscribe / remove decisions happen under
-+ * {@link #lock} so that "last subscriber leaves → shutdown" is atomic w.r.t.
-+ * "new subscriber arrives → reuse". Heavy I/O ({@link FrameBroadcaster#shutdown})
-+ * runs outside the lock. Lock ordering is strictly registry → broadcaster; the
-+ * broadcaster never calls back into the registry while holding its own lock, so
-+ * no deadlock is possible.
++ * <h3>并发</h3>
++ * get-or-create / subscribe / unsubscribe / remove 的判定都在 {@link #lock} 内完成，使
++ * "最后一个订阅者离开→关闭"与"新订阅者到来→复用"保持原子。重 I/O
++ * （{@link FrameBroadcaster#shutdown}）在锁外执行。锁序严格为 registry → broadcaster，
++ * 且 broadcaster 不会在持有自身锁时回调 registry，故无死锁。
 + */
 +public final class FrameBroadcasterRegistry extends RefCountedDisplayRegistry {
 +
@@ -51,23 +44,19 @@ index 00000000..4146907d
 +    }
 +
 +    /**
-+     * Subscribe {@code sessionId} to the broadcaster for {@code displayId},
-+     * creating it if necessary.
++     * 将 {@code sessionId} 订阅到 {@code displayId} 的 broadcaster（必要时创建）。
 +     *
-+     * <p>The first subscriber's {@code options} / {@code baseArgs} are baked
-+     * into the shared encoder (A1). Subsequent subscribers reuse the running
-+     * broadcaster and their options are ignored (a warning is logged by the
-+     * caller if they differ).
++     * <p>首个订阅者的 {@code options} / {@code baseArgs} 会固化进共享 encoder；后续订阅者
++     * 复用运行中的 broadcaster，其自身 options 被忽略，并以 warning 记录，避免 per-session
++     * 选项不一致被静默吞掉。
 +     *
-+     * @param displayId target virtual display
-+     * @param sessionId the subscribing client session
-+     * @param videoFd   the session's video socket file descriptor
-+     * @param options   per-session scrcpy options (used only when creating the broadcaster)
-+     * @param baseArgs  per-session scrubbed scrcpy args (used only when creating the broadcaster)
-+     * @param controller the session's controller (used only when creating the broadcaster, as
-+     *                   {@code VirtualDisplayListener}); may be {@code null}
-+     * @return the subscriber handle (owned by the caller; release via
-+     *         {@link #releaseSubscriber} or {@link #releaseSession})
++     * @param displayId  目标虚拟显示器
++     * @param sessionId  订阅的客户端会话
++     * @param videoFd    会话的视频 socket 文件描述符
++     * @param options    per-session scrcpy options（仅在创建 broadcaster 时使用）
++     * @param baseArgs   per-session 已清洗 scrcpy 参数（仅在创建时使用）
++     * @param controller 会话 controller（仅在创建时作为 {@code VirtualDisplayListener}），可为 null
++     * @return 订阅者句柄，由调用方持有，经 {@link #releaseSubscriber} 或 {@link #releaseSession} 释放
 +     */
 +    public VideoSubscriber acquireSubscriber(int displayId, int sessionId, FileDescriptor videoFd,
 +                                             Options options, String[] baseArgs, Controller controller) throws Exception {
@@ -77,18 +66,19 @@ index 00000000..4146907d
 +            if (b != null) {
 +                created = false;
 +            } else {
-+                // create() does only object construction + async encode-thread
-+                // launch (no blocking I/O), so holding the lock here is safe
-+                // and keeps get-or-create atomic w.r.t. release/teardown.
++                // create() 只做对象构造与异步编码线程启动（无阻塞 I/O），因此在锁内
++                // 完成 get-or-create 是安全的，并与 release/teardown 保持原子。
 +                b = FrameBroadcaster.create(displayId, baseArgs, options, broker, controller);
 +                broadcasters.put(displayId, b);
 +                created = true;
 +            }
-+            // Register this session as a user (reentrant into the same lock).
++            if (!created) {
++                Ln.w("FrameBroadcasterRegistry: session " + sessionId + " reused the running broadcaster for"
++                        + " displayId=" + displayId + " — its options are ignored (first subscriber's options apply)");
++            }
 +            acquireRef(displayId, sessionId);
-+            // subscribe under the lock so it is atomic w.r.t. a concurrent
-+            // releaseSubscriber that might otherwise shut the broadcaster down
-+            // between get() and subscribe().
++            // 在锁内 subscribe，使其相对并发的 releaseSubscriber 原子（否则后者可能在
++            // get() 与 subscribe() 之间关掉 broadcaster）。
 +            VideoSubscriber sub = b.subscribe(sessionId, videoFd);
 +            Ln.i("FrameBroadcasterRegistry: session " + sessionId + " subscribed to displayId=" + displayId
 +                    + " (created=" + created + ", subscribers=" + b.subscriberCount() + ")");
@@ -97,17 +87,13 @@ index 00000000..4146907d
 +    }
 +
 +    /**
-+     * Release a specific subscriber. If it was the last one for its displayId,
-+     * the broadcaster is shut down (encoder stopped, VD fallback surface
-+     * restored). The VD itself is not destroyed (refs/13 §7, A5).
++     * 释放指定订阅者。若它是其 displayId 的最后一个订阅者，则关闭 broadcaster
++     * （停止 encoder、恢复 VD 兜底 surface），但不销毁 VD 本身。
 +     *
-+     * <p><b>Idempotent:</b> safe to call after {@link #releaseSession(sessionId)}
-+     * has already dropped this session's subscription — the session no longer
-+     * holds a reference and the (sub, sessionId) pair is already gone from the
-+     * broadcaster, so this becomes a no-op. This is the contract
-+     * {@code ClientSession.cleanup()} relies on when it calls
-+     * {@code releaseSession()} as a safety net and then stops each per-display
-+     * video controller (which individually releases its subscriber).
++     * <p><b>幂等：</b>在 {@link #releaseSession(sessionId)} 已丢弃该会话订阅后调用是安全的
++     * ——会话不再持有引用，且 (sub, sessionId) 已从 broadcaster 移除，调用退化为 no-op。
++     * {@code ClientSession.cleanup()} 正是依赖此契约：先以 releaseSession() 兜底，再逐个
++     * 停止 per-display 视频控制器（各自释放自己的订阅者）。
 +     */
 +    public void releaseSubscriber(int displayId, int sessionId, VideoSubscriber sub) {
 +        FrameBroadcaster toShutdown = null;

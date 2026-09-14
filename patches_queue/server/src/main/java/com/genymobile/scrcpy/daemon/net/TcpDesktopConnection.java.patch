@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
 new file mode 100644
-index 00000000..a16d4dce
+index 00000000..f863d018
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/TcpDesktopConnection.java
-@@ -0,0 +1,418 @@
+@@ -0,0 +1,351 @@
 +package com.genymobile.scrcpy.daemon.net;
 +
 +import com.genymobile.scrcpy.control.ControlChannel;
@@ -12,42 +12,35 @@ index 00000000..a16d4dce
 +import com.genymobile.scrcpy.util.StringUtils;
 +
 +import java.io.Closeable;
++import java.io.DataInputStream;
 +import java.io.FileDescriptor;
 +import java.io.IOException;
 +import java.io.InputStream;
-+import java.io.OutputStream;
 +import java.lang.reflect.Field;
 +import java.net.Socket;
 +import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
 +import java.util.ArrayList;
-+import java.util.Collections;
 +import java.util.HashMap;
-+import java.util.HashSet;
 +import java.util.List;
 +import java.util.Map;
-+import java.util.Set;
 +
 +/**
-+ * A single client session can now open multiple instances of the same role
-+ * (ROLE_VIDEO, ROLE_AUDIO, ROLE_CONTROL) to drive different displays.
++ * 单个客户端会话的全部 socket 通道。
 + *
-+ * <p>Socket handshake update:
++ * <p>握手格式：
 + * <pre>
-+ *   +----------+-----------------------+--------------------+
-+ *   | 1 byte   | 4 bytes (ROLE_NEGO only) | 4 bytes (others)  |
-+ *   | role     | sessionId             | displayId          |
-+ *   +----------+-----------------------+--------------------+
++ *   +--------+--------------------------+--------------------------+
++ *   | 1 byte | 4 bytes (仅 NEGOTIATION) | 4 bytes (其余 role)      |
++ *   | role   | sessionId                | displayId                |
++ *   +--------+--------------------------+--------------------------+
 + * </pre>
++ * ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL 在 sessionId 后追加 4 字节大端 {@code displayId}，
++ * 使单个会话可为不同显示器打开 N 个同类型 role socket。ROLE_NEGOTIATION 是会话级控制面，
++ * 不带 displayId。
 + *
-+ * <p>For ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL the client appends a
-+ * 4-byte big-endian {@code displayId} immediately after the sessionId.
-+ * This lets the server demux N ROLE_VIDEO sockets (one per display) inside
-+ * a single session. ROLE_NEGOTIATION has no displayId because it is a
-+ * session-wide control plane.
-+ *
-+ * <p>The connection stores a map of {@code (role, displayId) → channel} so
-+ * the session can iterate all subscribers on cleanup and so re-bind of the
-+ * same key replaces a stale socket (reconnect semantics).
++ * <p>通道以 {@code (role, displayId)} 为键存放在单张表中，用同一把锁保护；同键重复绑定
++ * 会替换并关闭旧 socket（重连语义）。
 + */
 +public final class TcpDesktopConnection implements Closeable {
 +
@@ -57,16 +50,16 @@ index 00000000..a16d4dce
 +    public static final int ROLE_NEGOTIATION = 3;
 +
 +    private static final int DEVICE_NAME_FIELD_LENGTH = 64;
++    private static final int MAX_TOKEN_BYTES = 1024;
 +
 +    /**
-+     * Read timeout applied from accept() until the role/session/displayId
-+     * handshake completes. Without it a port scan or a peer dying mid-handshake
-+     * blocks the single accept thread (or a roleExecutor thread) forever.
-+     * Cleared (set back to 0) once a socket enters its data phase.
++     * 从 accept() 到 role/session/displayId 握手完成期间的读超时。没有它，端口扫描或
++     * 握手途中断连的对端会永久阻塞接受线程。进入数据阶段后由
++     * {@link #clearSoTimeout(Socket)} 清零。
 +     */
 +    public static final int HANDSHAKE_SO_TIMEOUT_MS = 10000;
 +
-+    /** Composite key for ROLE_* / ROLE_CONTROL channels. */
++    /** (role, displayId) 复合键。 */
 +    public static final class RoleDisplayKey {
 +        public final int role;
 +        public final int displayId;
@@ -78,8 +71,12 @@ index 00000000..a16d4dce
 +
 +        @Override
 +        public boolean equals(Object o) {
-+            if (this == o) return true;
-+            if (!(o instanceof RoleDisplayKey)) return false;
++            if (this == o) {
++                return true;
++            }
++            if (!(o instanceof RoleDisplayKey)) {
++                return false;
++            }
 +            RoleDisplayKey that = (RoleDisplayKey) o;
 +            return role == that.role && displayId == that.displayId;
 +        }
@@ -93,35 +90,39 @@ index 00000000..a16d4dce
 +        public String toString() {
 +            String roleName;
 +            switch (role) {
-+                case ROLE_VIDEO: roleName = "VIDEO"; break;
-+                case ROLE_AUDIO: roleName = "AUDIO"; break;
-+                case ROLE_CONTROL: roleName = "CONTROL"; break;
-+                default: roleName = "ROLE_" + role; break;
++                case ROLE_VIDEO:
++                    roleName = "VIDEO";
++                    break;
++                case ROLE_AUDIO:
++                    roleName = "AUDIO";
++                    break;
++                case ROLE_CONTROL:
++                    roleName = "CONTROL";
++                    break;
++                default:
++                    roleName = "ROLE_" + role;
++                    break;
 +            }
 +            return roleName + ":displayId=" + displayId;
 +        }
 +    }
 +
-+    /** Shared container for a ROLE_VIDEO / ROLE_AUDIO channel (socket+fd). */
-+    public static final class FdChannel {
-+        public final Socket socket;
-+        public final FileDescriptor fd;
++    /** 一个 role 通道：socket 及（video/audio 时）其文件描述符。 */
++    private static final class Channel {
++        private final Socket socket;
++        private final FileDescriptor fd;
++        private final ControlChannel controlChannel;
 +
-+        public FdChannel(Socket socket, FileDescriptor fd) {
++        Channel(Socket socket, FileDescriptor fd, ControlChannel controlChannel) {
 +            this.socket = socket;
 +            this.fd = fd;
++            this.controlChannel = controlChannel;
 +        }
 +    }
 +
-+    // Negotiation channel is session-scoped — one per session, no displayId.
 +    private final Socket negotiationSocket;
 +    private final ControlChannel negotiationChannel;
-+
-+    // Role channels are keyed by (role, displayId). Volatile for safe publish
-+    // from the accept thread; mutations are synchronized on the map itself.
-+    private final Map<RoleDisplayKey, FdChannel> fdChannels = new HashMap<>();
-+    private final Map<RoleDisplayKey, ControlChannel> controlChannels = new HashMap<>();
-+
++    private final Map<RoleDisplayKey, Channel> channels = new HashMap<>();
 +    private final int sessionId;
 +
 +    public TcpDesktopConnection(Socket negotiationSocket, int sessionId) throws IOException {
@@ -141,132 +142,107 @@ index 00000000..a16d4dce
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // Bind / accessors
++    // 绑定 / 访问
 +    // ------------------------------------------------------------------
 +
 +    public ControlChannel bindControlSocket(int displayId, Socket socket) throws IOException {
 +        RoleDisplayKey key = new RoleDisplayKey(ROLE_CONTROL, displayId);
-+        synchronized (controlChannels) {
-+            ControlChannel prev = controlChannels.remove(key);
-+            if (prev != null) {
-+                // Close the stale underlying socket remembered in fdChannels.
-+                synchronized (fdChannels) {
-+                    FdChannel stale = fdChannels.remove(key);
-+                    if (stale != null) closeQuietly(stale.socket);
-+                }
-+            }
++        synchronized (channels) {
++            closeQuietly(removeChannelLocked(key));
 +            ControlChannel ch = new ControlChannel(socket.getInputStream(), socket.getOutputStream());
-+            controlChannels.put(key, ch);
-+            // Remember the raw socket in fdChannels so shutdown/close iterates it.
-+            synchronized (fdChannels) {
-+                fdChannels.put(key, new FdChannel(socket, null));
-+            }
++            channels.put(key, new Channel(socket, null, ch));
 +            Ln.d("TcpDesktopConnection[" + sessionId + "]: control socket bound " + key);
 +            return ch;
 +        }
 +    }
 +
-+    public FdChannel bindVideoSocket(int displayId, Socket socket) throws IOException {
-+        RoleDisplayKey key = new RoleDisplayKey(ROLE_VIDEO, displayId);
++    public void bindVideoSocket(int displayId, Socket socket) throws IOException {
++        bindFdSocket(ROLE_VIDEO, displayId, socket);
++    }
++
++    public void bindAudioSocket(int displayId, Socket socket) throws IOException {
++        bindFdSocket(ROLE_AUDIO, displayId, socket);
++    }
++
++    private void bindFdSocket(int role, int displayId, Socket socket) throws IOException {
++        RoleDisplayKey key = new RoleDisplayKey(role, displayId);
 +        FileDescriptor fd = getFileDescriptor(socket);
-+        FdChannel ch = new FdChannel(socket, fd);
-+        synchronized (fdChannels) {
-+            FdChannel prev = fdChannels.put(key, ch);
-+            if (prev != null) {
-+                closeQuietly(prev.socket);
-+            }
-+            Ln.d("TcpDesktopConnection[" + sessionId + "]: video socket bound " + key + ", fd=" + fd);
-+        }
-+        return ch;
-+    }
-+
-+    public FdChannel bindAudioSocket(int displayId, Socket socket) throws IOException {
-+        RoleDisplayKey key = new RoleDisplayKey(ROLE_AUDIO, displayId);
-+        FileDescriptor fd = getFileDescriptor(socket);
-+        FdChannel ch = new FdChannel(socket, fd);
-+        synchronized (fdChannels) {
-+            FdChannel prev = fdChannels.put(key, ch);
-+            if (prev != null) {
-+                closeQuietly(prev.socket);
-+            }
-+            Ln.d("TcpDesktopConnection[" + sessionId + "]: audio socket bound " + key + ", fd=" + fd);
-+        }
-+        return ch;
-+    }
-+
-+    public ControlChannel getControlChannel(int displayId) {
-+        synchronized (controlChannels) {
-+            return controlChannels.get(new RoleDisplayKey(ROLE_CONTROL, displayId));
++        synchronized (channels) {
++            closeQuietly(removeChannelLocked(key));
++            channels.put(key, new Channel(socket, fd, null));
++            Ln.d("TcpDesktopConnection[" + sessionId + "]: " + key + " bound, fd=" + fd);
 +        }
 +    }
 +
-+    public FdChannel getVideoChannel(int displayId) {
-+        synchronized (fdChannels) {
-+            return fdChannels.get(new RoleDisplayKey(ROLE_VIDEO, displayId));
++    public boolean hasVideoChannel(int displayId) {
++        synchronized (channels) {
++            return channels.containsKey(new RoleDisplayKey(ROLE_VIDEO, displayId));
 +        }
 +    }
 +
-+    public FdChannel getAudioChannel(int displayId) {
-+        synchronized (fdChannels) {
-+            return fdChannels.get(new RoleDisplayKey(ROLE_AUDIO, displayId));
++    public FileDescriptor getVideoFd(int displayId) {
++        synchronized (channels) {
++            Channel ch = channels.get(new RoleDisplayKey(ROLE_VIDEO, displayId));
++            return ch != null ? ch.fd : null;
 +        }
 +    }
 +
-+    /** Snapshot of currently bound (role,displayId) keys — stable for iteration. */
-+    public List<RoleDisplayKey> listBoundKeys() {
-+        // Dedupe via a HashSet instead of O(n²) List.contains over the union.
-+        Set<RoleDisplayKey> keys = new HashSet<>();
-+        synchronized (fdChannels) {
-+            keys.addAll(fdChannels.keySet());
-+        }
-+        synchronized (controlChannels) {
-+            keys.addAll(controlChannels.keySet());
-+        }
-+        return Collections.unmodifiableList(new ArrayList<>(keys));
++    /** 移除并返回同键旧通道的 socket（须在锁内调用）。 */
++    private Socket removeChannelLocked(RoleDisplayKey key) {
++        Channel prev = channels.remove(key);
++        return prev != null ? prev.socket : null;
 +    }
 +
 +    // ------------------------------------------------------------------
 +    // Shutdown / close
 +    // ------------------------------------------------------------------
 +
++    /** 半关闭所有 socket（发送 FIN），使对端的阻塞读能返回 EOF。 */
 +    public void shutdown() {
 +        shutdownSocket(negotiationSocket);
-+        List<RoleDisplayKey> keys = listBoundKeys();
-+        for (RoleDisplayKey k : keys) {
-+            FdChannel ch;
-+            synchronized (fdChannels) { ch = fdChannels.get(k); }
-+            if (ch != null) shutdownSocket(ch.socket);
++        for (Socket socket : snapshotSockets()) {
++            shutdownSocket(socket);
 +        }
 +    }
 +
 +    @Override
 +    public void close() {
 +        closeQuietly(negotiationSocket);
-+        List<FdChannel> all;
-+        synchronized (fdChannels) {
-+            all = new ArrayList<>(fdChannels.values());
-+            fdChannels.clear();
++        List<Socket> all;
++        synchronized (channels) {
++            all = new ArrayList<>(channels.size());
++            for (Channel ch : channels.values()) {
++                all.add(ch.socket);
++            }
++            channels.clear();
 +        }
-+        synchronized (controlChannels) {
-+            controlChannels.clear();
++        for (Socket socket : all) {
++            closeQuietly(socket);
 +        }
-+        for (FdChannel ch : all) {
-+            closeQuietly(ch.socket);
++    }
++
++    private List<Socket> snapshotSockets() {
++        synchronized (channels) {
++            List<Socket> sockets = new ArrayList<>(channels.size());
++            for (Channel ch : channels.values()) {
++                sockets.add(ch.socket);
++            }
++            return sockets;
 +        }
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // Device metadata
++    // 设备元数据
 +    // ------------------------------------------------------------------
 +
 +    public void sendDeviceMeta(String deviceName) throws IOException {
++        if (negotiationSocket == null) {
++            throw new IOException("No negotiation socket available to send device metadata");
++        }
 +        byte[] buffer = new byte[DEVICE_NAME_FIELD_LENGTH];
 +        byte[] deviceNameBytes = deviceName.getBytes(StandardCharsets.UTF_8);
 +        int len = StringUtils.getUtf8TruncationIndex(deviceNameBytes, DEVICE_NAME_FIELD_LENGTH - 1);
 +        System.arraycopy(deviceNameBytes, 0, buffer, 0, len);
-+        if (negotiationSocket == null) {
-+            throw new IOException("No negotiation socket available to send device metadata");
-+        }
 +        FileDescriptor fd = getFileDescriptor(negotiationSocket);
 +        if (fd == null) {
 +            throw new IOException("Could not get file descriptor for device metadata transmission");
@@ -275,10 +251,10 @@ index 00000000..a16d4dce
 +    }
 +
 +    // ------------------------------------------------------------------
-+    // Handshake primitives
++    // 握手原语
 +    // ------------------------------------------------------------------
 +
-+    /** Read the 1-byte role header shared by all socket types. */
++    /** 读取所有 socket 类型共用的 1 字节 role 头。 */
 +    public static int readSocketRole(Socket socket) throws IOException {
 +        InputStream in = socket.getInputStream();
 +        int role = in.read();
@@ -291,10 +267,7 @@ index 00000000..a16d4dce
 +        return role;
 +    }
 +
-+    /**
-+     * Leave the handshake phase: drop the handshake read timeout so the socket
-+     * can be idle arbitrarily long during normal data exchange.
-+     */
++    /** 离开握手阶段：清除握手读超时，使 socket 可在数据交换期间任意长时间空闲。 */
 +    public static void clearSoTimeout(Socket socket) {
 +        try {
 +            socket.setSoTimeout(0);
@@ -304,73 +277,33 @@ index 00000000..a16d4dce
 +    }
 +
 +    public static void writeSessionId(Socket socket, int sessionId) throws IOException {
-+        OutputStream out = socket.getOutputStream();
-+        writeInt32(out, sessionId);
++        DaemonWire.writeInt32(socket.getOutputStream(), sessionId);
 +    }
 +
 +    public static int readSessionId(Socket socket) throws IOException {
-+        InputStream in = socket.getInputStream();
-+        return readInt32(in);
++        return DaemonWire.readInt32(socket.getInputStream());
 +    }
 +
++    /** 校验客户端出示的密钥；使用常量时间比较避免时序侧信道。 */
 +    public static boolean authenticate(Socket socket, String expectedToken) throws IOException {
-+        InputStream in = socket.getInputStream();
-+        int b1 = in.read();
-+        int b2 = in.read();
-+        int b3 = in.read();
-+        int b4 = in.read();
-+        if (b1 < 0 || b2 < 0 || b3 < 0 || b4 < 0) {
-+            return false;
-+        }
-+        int len = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
-+        if (len < 0 || len > 1024) {
++        DataInputStream in = new DataInputStream(socket.getInputStream());
++        int len = DaemonWire.readInt32(in);
++        if (len < 0 || len > MAX_TOKEN_BYTES) {
 +            return false;
 +        }
 +        byte[] buf = new byte[len];
-+        int read = 0;
-+        while (read < len) {
-+            int r = in.read(buf, read, len - read);
-+            if (r < 0) {
-+                return false;
-+            }
-+            read += r;
-+        }
-+        String clientToken = new String(buf, StandardCharsets.UTF_8);
-+        return expectedToken.equals(clientToken);
++        in.readFully(buf);
++        return MessageDigest.isEqual(expectedToken.getBytes(StandardCharsets.UTF_8), buf);
 +    }
 +
-+    /**
-+     * For ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL the server writes the
-+     * displayId (4 bytes, big-endian) to the socket after accepting the
-+     * role socket, as an acknowledgment that the (role,displayId) was
-+     * routed correctly. The client reads these 4 bytes to confirm.
-+     */
++    /** role socket 被正确路由的确认：服务端回写 4 字节大端 displayId。 */
 +    public static void writeDisplayId(Socket socket, int displayId) throws IOException {
-+        writeInt32(socket.getOutputStream(), displayId);
++        DaemonWire.writeInt32(socket.getOutputStream(), displayId);
 +    }
 +
-+    /** Read the client-announced displayId for a role socket. */
++    /** 读取客户端声明的 displayId。 */
 +    public static int readDisplayId(Socket socket) throws IOException {
-+        return readInt32(socket.getInputStream());
-+    }
-+
-+    private static void writeInt32(OutputStream out, int value) throws IOException {
-+        out.write((value >> 24) & 0xFF);
-+        out.write((value >> 16) & 0xFF);
-+        out.write((value >> 8) & 0xFF);
-+        out.write(value & 0xFF);
-+        out.flush();
-+    }
-+
-+    private static int readInt32(InputStream in) throws IOException {
-+        int b1 = in.read();
-+        int b2 = in.read();
-+        int b3 = in.read();
-+        int b4 = in.read();
-+        if (b1 < 0 || b2 < 0 || b3 < 0 || b4 < 0) {
-+            throw new IOException("Connection closed before 4-byte integer received");
-+        }
-+        return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
++        return DaemonWire.readInt32(socket.getInputStream());
 +    }
 +
 +    // ------------------------------------------------------------------
@@ -399,7 +332,7 @@ index 00000000..a16d4dce
 +        return null;
 +    }
 +
-+    private static void shutdownSocket(Socket socket) {
++    public static void shutdownSocket(Socket socket) {
 +        if (socket == null) {
 +            return;
 +        }
@@ -407,18 +340,18 @@ index 00000000..a16d4dce
 +            socket.shutdownInput();
 +            socket.shutdownOutput();
 +        } catch (IOException e) {
-+            Ln.w("Socket shutdown failed", e);
++            Ln.d("Socket shutdown failed: " + e.getMessage());
 +        }
 +    }
 +
-+    private static void closeQuietly(Socket socket) {
++    public static void closeQuietly(Socket socket) {
 +        if (socket == null) {
 +            return;
 +        }
 +        try {
 +            socket.close();
 +        } catch (IOException e) {
-+            Ln.w("Socket close failed", e);
++            Ln.d("Socket close failed: " + e.getMessage());
 +        }
 +    }
 +}

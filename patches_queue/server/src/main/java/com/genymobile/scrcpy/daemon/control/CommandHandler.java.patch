@@ -1,13 +1,14 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/CommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/CommandHandler.java
 new file mode 100644
-index 00000000..70a161fe
+index 00000000..4e2202ae
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/CommandHandler.java
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,8 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
++import com.genymobile.scrcpy.control.DeviceMessageSender;
 +
 +public interface CommandHandler {
-+    void handle(ControlMessage msg, CommandContext ctx) throws Exception;
++    void handle(ControlMessage msg, DeviceMessageSender sender) throws Exception;
 +}

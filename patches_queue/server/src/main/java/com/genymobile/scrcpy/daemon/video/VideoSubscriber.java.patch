@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
 new file mode 100644
-index 00000000..4ecdac71
+index 00000000..81d20545
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,167 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.device.Streamer;
@@ -25,6 +25,8 @@ index 00000000..4ecdac71
 +    private final int sessionId;
 +    private final Streamer streamer;
 +    private final LinkedBlockingQueue<Frame> queue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
++    // 保护 queue 的多步操作（offer + 淘汰、drainTo）。writeLoop 的 poll 本身原子，无需锁。
++    private final Object queueLock = new Object();
 +
 +    private final AtomicBoolean alive = new AtomicBoolean(true);
 +    private volatile boolean closed = false;
@@ -62,22 +64,25 @@ index 00000000..4ecdac71
 +            frame.release();
 +            return;
 +        }
-+        if (queue.offer(frame)) {
-+            return;
-+        }
-+        if (!evictOldestDroppable()) {
-+            Ln.w("VideoSubscriber[" + sessionId + "]: queue full and no droppable frame "
-+                    + "(would lose a keyframe) — closing slow subscriber");
-+            close();
-+            frame.release();
-+            return;
-+        }
-+        if (!queue.offer(frame)) {
-+            Ln.w("VideoSubscriber[" + sessionId + "]: offer failed post-eviction — dropping frame " + frame);
-+            frame.release();
++        synchronized (queueLock) {
++            if (queue.offer(frame)) {
++                return;
++            }
++            if (!evictOldestDroppable()) {
++                Ln.w("VideoSubscriber[" + sessionId + "]: queue full and no droppable frame "
++                        + "(would lose a keyframe) — closing slow subscriber");
++                closeLocked();
++                frame.release();
++                return;
++            }
++            if (!queue.offer(frame)) {
++                Ln.w("VideoSubscriber[" + sessionId + "]: offer failed post-eviction — dropping frame " + frame);
++                frame.release();
++            }
 +        }
 +    }
 +
++    /** 淘汰最旧的可丢弃帧。须在 {@link #queueLock} 内调用。 */
 +    private boolean evictOldestDroppable() {
 +        java.util.Iterator<Frame> it = queue.iterator();
 +        while (it.hasNext()) {
@@ -140,6 +145,13 @@ index 00000000..4ecdac71
 +    }
 +
 +    void close() {
++        synchronized (queueLock) {
++            closeLocked();
++        }
++    }
++
++    /** 须在 {@link #queueLock} 内调用（deliver 的淘汰路径也会走到这里）。 */
++    private void closeLocked() {
 +        closed = true;
 +        if (writeThread != null) {
 +            writeThread.interrupt();

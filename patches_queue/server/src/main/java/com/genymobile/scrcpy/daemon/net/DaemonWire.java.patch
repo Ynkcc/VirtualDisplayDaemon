@@ -1,0 +1,68 @@
+diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/net/DaemonWire.java b/server/src/main/java/com/genymobile/scrcpy/daemon/net/DaemonWire.java
+new file mode 100644
+index 00000000..2671355a
+--- /dev/null
++++ b/server/src/main/java/com/genymobile/scrcpy/daemon/net/DaemonWire.java
+@@ -0,0 +1,62 @@
++package com.genymobile.scrcpy.daemon.net;
++
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.nio.charset.StandardCharsets;
++
++/**
++ * daemon 协议的最低层 framing：4 字节大端 int32 与 int32 长度前缀的 UTF-8 字符串。
++ *
++ * <p>消息收发（{@code DaemonControlMessageReader} / {@code DaemonDeviceMessageWriter}）
++ * 与 socket 握手（{@link TcpDesktopConnection}）共用本类，保证两端 framing 对称。
++ */
++public final class DaemonWire {
++
++    // 任意长度前缀帧的硬上限：损坏或恶意的长度字段不得触发巨量分配（OOM）。
++    private static final int MAX_FRAME_BYTES = 1 << 20; // 1 MiB
++
++    private DaemonWire() {
++    }
++
++    /** 写入 {@code int32 byteLength} + UTF-8 字节；{@code null} 写作零长度帧。 */
++    public static void writeString(DataOutputStream dos, String s) throws IOException {
++        byte[] bytes = s != null ? s.getBytes(StandardCharsets.UTF_8) : new byte[0];
++        dos.writeInt(bytes.length);
++        dos.write(bytes);
++    }
++
++    /** 读取 {@link #writeString(DataOutputStream, String)} 写出的字符串。 */
++    public static String readString(DataInputStream dis) throws IOException {
++        int len = readInt32(dis);
++        if (len < 0 || len > MAX_FRAME_BYTES) {
++            throw new IOException("String frame length out of range: " + len);
++        }
++        byte[] data = new byte[len];
++        dis.readFully(data);
++        return new String(data, StandardCharsets.UTF_8);
++    }
++
++    /** 读取 4 字节大端 int32；流提前结束抛 {@link IOException}。 */
++    public static int readInt32(InputStream in) throws IOException {
++        int b1 = in.read();
++        int b2 = in.read();
++        int b3 = in.read();
++        int b4 = in.read();
++        if (b1 < 0 || b2 < 0 || b3 < 0 || b4 < 0) {
++            throw new IOException("Connection closed before 4-byte integer received");
++        }
++        return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
++    }
++
++    /** 写入 4 字节大端 int32 并 flush。 */
++    public static void writeInt32(OutputStream out, int value) throws IOException {
++        out.write((value >> 24) & 0xFF);
++        out.write((value >> 16) & 0xFF);
++        out.write((value >> 8) & 0xFF);
++        out.write(value & 0xFF);
++        out.flush();
++    }
++}

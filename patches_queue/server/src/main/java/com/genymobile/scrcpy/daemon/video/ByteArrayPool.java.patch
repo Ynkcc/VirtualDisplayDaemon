@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/ByteArrayPool.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/ByteArrayPool.java
 new file mode 100644
-index 00000000..772859b3
+index 00000000..d9dd62f1
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/ByteArrayPool.java
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,47 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import java.util.ArrayDeque;
@@ -49,9 +49,5 @@ index 00000000..772859b3
 +        n |= n >> 8;
 +        n |= n >> 16;
 +        return n + 1;
-+    }
-+
-+    static synchronized void clear() {
-+        pool.clear();
 +    }
 +}

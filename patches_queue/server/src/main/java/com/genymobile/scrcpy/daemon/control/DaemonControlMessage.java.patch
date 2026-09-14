@@ -1,68 +1,50 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessage.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessage.java
 new file mode 100644
-index 00000000..f057a72d
+index 00000000..ea8aeec6
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessage.java
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,132 @@
 +package com.genymobile.scrcpy.daemon.control;
++
++import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
 +
 +import java.util.ArrayList;
 +import java.util.Collections;
 +import java.util.List;
 +
 +/**
-+ * Carrier for daemon-mode control message fields.
++ * daemon 控制消息（客户端 → daemon）的载荷载体。
 + *
-+ * <p>Daemon messages reuse the upstream {@link com.genymobile.scrcpy.control.ControlMessage} as
-+ * their envelope (so they flow through the existing {@code ControlMessageReader} →
-+ * {@code Controller} pipeline), but their type-specific payload is stored here and attached via
-+ * {@code ControlMessage.setExtensionPayload(...)}. This keeps the upstream class free of
-+ * daemon-specific fields, so upstream updates merge cleanly.
++ * <p>复用上游 {@link com.genymobile.scrcpy.control.ControlMessage} 作为信封，本类字段经
++ * {@code setExtensionPayload(...)} 挂载，使上游类不含 daemon 专属字段。
++ *
++ * <p>字段语义按命令划分，同一字段不跨语义复用：
++ * <ul>
++ *   <li>{@code text}: 显示器名（CREATE_VIRTUAL_DISPLAY）或包名（START_ACTIVITY）</li>
++ *   <li>{@code width}/{@code height}/{@code dpi}: 显示器尺寸</li>
++ *   <li>{@code flags}: CREATE 的 VirtualDisplay flags；RELEASE 的任务迁移标志（见常量）</li>
++ *   <li>{@code rotation}: FREEZE_ROTATION 的目标旋转值 0-3</li>
++ *   <li>{@code optionsKv}/{@code rolesMask}/{@code rolesEntries}: CONFIGURE_SESSION</li>
++ * </ul>
 + */
 +public final class DaemonControlMessage {
 +
-+    /**
-+     * A (role, displayId) declaration sent in CONFIGURE_SESSION so the
-+     * negotiation channel knows which role sockets the client intends to
-+     * open, and which display each socket is bound to. With multi-display
-+     * per-session the client can now declare N ROLE_VIDEO + N ROLE_CONTROL
-+     * entries, one per virtual display.
-+     */
-+    public static final class RoleEntry {
-+        public final int role;
-+        public final int displayId;
-+
-+        public RoleEntry(int role, int displayId) {
-+            this.role = role;
-+            this.displayId = displayId;
-+        }
-+
-+        @Override
-+        public boolean equals(Object o) {
-+            if (this == o) return true;
-+            if (!(o instanceof RoleEntry)) return false;
-+            RoleEntry that = (RoleEntry) o;
-+            return role == that.role && displayId == that.displayId;
-+        }
-+
-+        @Override
-+        public int hashCode() {
-+            return 31 * role + displayId;
-+        }
-+    }
++    /** RELEASE_VIRTUAL_DISPLAY: 销毁前不迁移任务，交由系统处理。 */
++    public static final int RELEASE_KEEP_TASKS = 0;
++    /** RELEASE_VIRTUAL_DISPLAY: 销毁前将任务前台移回主屏。 */
++    public static final int RELEASE_MOVE_TASKS_TO_DEFAULT = 1;
 +
 +    private long sequence;
-+    private String text;       // display name (create) or package name (start activity)
++    private String text;
 +    private int displayId;
 +    private int width;
 +    private int height;
 +    private int dpi;
-+    private int flags;         // virtual-display flags, or rotation value for freeze
-+    private boolean isKeyEvent;
-+    private byte[] data;       // (kept for future use)
-+    private String optionsKv;  // newline-separated key=value scrcpy options (CONFIGURE_SESSION)
-+    private int rolesMask;     // legacy: bitmask of role types allowed (ignored if rolesEntries present)
-+    private List<RoleEntry> rolesEntries = Collections.emptyList(); // multi-role multi-display declaration
++    private int flags;
++    private int rotation;
++    private String optionsKv;
++    private int rolesMask;
++    private List<TcpDesktopConnection.RoleDisplayKey> rolesEntries = Collections.emptyList();
 +
 +    public long getSequence() {
 +        return sequence;
@@ -120,20 +102,12 @@ index 00000000..f057a72d
 +        this.flags = flags;
 +    }
 +
-+    public boolean isKeyEvent() {
-+        return isKeyEvent;
++    public int getRotation() {
++        return rotation;
 +    }
 +
-+    public void setKeyEvent(boolean keyEvent) {
-+        isKeyEvent = keyEvent;
-+    }
-+
-+    public byte[] getData() {
-+        return data;
-+    }
-+
-+    public void setData(byte[] data) {
-+        this.data = data;
++    public void setRotation(int rotation) {
++        this.rotation = rotation;
 +    }
 +
 +    public String getOptionsKv() {
@@ -152,12 +126,13 @@ index 00000000..f057a72d
 +        this.rolesMask = rolesMask;
 +    }
 +
-+    public List<RoleEntry> getRolesEntries() {
++    public List<TcpDesktopConnection.RoleDisplayKey> getRolesEntries() {
 +        return rolesEntries;
 +    }
 +
-+    public void setRolesEntries(List<RoleEntry> rolesEntries) {
-+        this.rolesEntries = rolesEntries != null ? Collections.unmodifiableList(new ArrayList<>(rolesEntries))
++    public void setRolesEntries(List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) {
++        this.rolesEntries = rolesEntries != null
++                ? Collections.unmodifiableList(new ArrayList<>(rolesEntries))
 +                : Collections.emptyList();
 +    }
 +}

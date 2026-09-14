@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonOptions.java b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonOptions.java
 new file mode 100644
-index 00000000..61611076
+index 00000000..252c56e7
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/DaemonOptions.java
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,77 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.util.Ln;
@@ -69,31 +69,15 @@ index 00000000..61611076
 +        return port;
 +    }
 +
-+    public void setPort(int port) {
-+        this.port = port;
-+    }
-+
 +    public boolean isDaemonMode() {
 +        return daemonMode;
-+    }
-+
-+    public void setDaemonMode(boolean daemonMode) {
-+        this.daemonMode = daemonMode;
 +    }
 +
 +    public String getBindAddress() {
 +        return bindAddress;
 +    }
 +
-+    public void setBindAddress(String bindAddress) {
-+        this.bindAddress = bindAddress;
-+    }
-+
 +    public String getSecretToken() {
 +        return secretToken;
-+    }
-+
-+    public void setSecretToken(String secretToken) {
-+        this.secretToken = secretToken;
 +    }
 +}

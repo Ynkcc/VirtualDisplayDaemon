@@ -1,12 +1,13 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java
 new file mode 100644
-index 00000000..ae6271e6
+index 00000000..f818e9ec
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriter.java
 @@ -0,0 +1,71 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.DeviceMessage;
++import com.genymobile.scrcpy.daemon.net.DaemonWire;
 +import com.genymobile.scrcpy.display.DisplayInfo;
 +import com.genymobile.scrcpy.model.DeviceApp;
 +
@@ -21,9 +22,8 @@ index 00000000..ae6271e6
 +
 +    public static boolean write(DeviceMessage msg, DataOutputStream dos) throws IOException {
 +        int type = msg.getType();
-+        // This writer is only reached for daemon response types (invoked from
-+        // DeviceMessageWriter's default branch), so every message carries a
-+        // DaemonDeviceMessage payload.
++        // 只有 daemon 响应类型会走到这里（由 DeviceMessageWriter 的 default 分支调用），
++        // 因此每条消息都带 DaemonDeviceMessage 载荷。
 +        DaemonDeviceMessage dto = DaemonMessages.payload(msg);
 +        switch (type) {
 +            case DaemonMessages.TYPE_RESPONSE_GENERIC:
