@@ -1,0 +1,153 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriterTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriterTest.java
+new file mode 100644
+index 00000000..891762f0
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonDeviceMessageWriterTest.java
+@@ -0,0 +1,147 @@
++package com.genymobile.scrcpy.daemon.control;
++
++import com.genymobile.scrcpy.control.DeviceMessage;
++import com.genymobile.scrcpy.control.DeviceMessageWriter;
++import com.genymobile.scrcpy.daemon.net.DaemonWire;
++import com.genymobile.scrcpy.display.DisplayInfo;
++import com.genymobile.scrcpy.model.DeviceApp;
++import com.genymobile.scrcpy.model.Size;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.IOException;
++import java.util.Arrays;
++import java.util.Collections;
++
++public class DaemonDeviceMessageWriterTest {
++
++    /** Serialize a device message through the real writer (type byte included). */
++    private static byte[] serialize(DeviceMessage msg) throws IOException {
++        ByteArrayOutputStream bos = new ByteArrayOutputStream();
++        new DeviceMessageWriter(bos).write(msg);
++        return bos.toByteArray();
++    }
++
++    @Test
++    public void testWriteGenericResponse() throws Exception {
++        byte[] actual = serialize(DaemonMessages.createGenericResponse(0x1122334455667788L, 0, 3, "OK"));
++
++        DataInputStream in = new DataInputStream(new ByteArrayInputStream(actual));
++        Assert.assertEquals(DaemonMessages.TYPE_RESPONSE_GENERIC, in.readUnsignedByte());
++        Assert.assertEquals(0x1122334455667788L, in.readLong());
++        Assert.assertEquals(0, in.readInt());
++        Assert.assertEquals(3, in.readInt());
++        Assert.assertEquals("OK", DaemonWire.readString(in));
++        Assert.assertEquals(0, in.available());
++    }
++
++    @Test
++    public void testWriteActiveDisplaysResponse() throws Exception {
++        byte[] actual = serialize(DaemonMessages.createActiveDisplaysResponse(42L, new int[]{2, 7, 9}));
++
++        DataInputStream in = new DataInputStream(new ByteArrayInputStream(actual));
++        Assert.assertEquals(DaemonMessages.TYPE_RESPONSE_ACTIVE_DISPLAYS, in.readUnsignedByte());
++        Assert.assertEquals(42L, in.readLong());
++        Assert.assertEquals(3, in.readInt());
++        Assert.assertEquals(2, in.readInt());
++        Assert.assertEquals(7, in.readInt());
++        Assert.assertEquals(9, in.readInt());
++        Assert.assertEquals(0, in.available());
++    }
++
++    @Test
++    public void testWriteActiveDisplayInfosResponse() throws Exception {
++        DisplayInfo info = new DisplayInfo(5, new Size(1920, 1080), 1, 2, 8, 320, "virtual:com.example,10042,vd,5",
++                7, true, "com.example", 10042);
++        byte[] actual = serialize(DaemonMessages.createActiveDisplayInfosResponse(43L, new DisplayInfo[]{info}));
++
++        DataInputStream in = new DataInputStream(new ByteArrayInputStream(actual));
++        Assert.assertEquals(DaemonMessages.TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS, in.readUnsignedByte());
++        Assert.assertEquals(43L, in.readLong());
++        Assert.assertEquals(1, in.readInt());
++        Assert.assertEquals(5, in.readInt());
++        Assert.assertEquals(1920, in.readInt());
++        Assert.assertEquals(1080, in.readInt());
++        Assert.assertEquals(320, in.readInt());
++        Assert.assertEquals(1, in.readInt());
++        Assert.assertEquals(7, in.readInt());
++        Assert.assertEquals(1, in.readUnsignedByte());
++        Assert.assertEquals(10042, in.readInt());
++        Assert.assertEquals("com.example", DaemonWire.readString(in));
++        Assert.assertEquals(0, in.available());
++    }
++
++    @Test
++    public void testWriteAppsListResponse() throws Exception {
++        byte[] actual = serialize(DaemonMessages.createAppsListResponse(44L, Arrays.asList(
++                new DeviceApp("com.a", "A", false),
++                new DeviceApp("com.b", "B", true))));
++
++        DataInputStream in = new DataInputStream(new ByteArrayInputStream(actual));
++        Assert.assertEquals(DaemonMessages.TYPE_RESPONSE_APPS_LIST, in.readUnsignedByte());
++        Assert.assertEquals(44L, in.readLong());
++        Assert.assertEquals(2, in.readInt());
++        Assert.assertEquals("com.a", DaemonWire.readString(in));
++        Assert.assertEquals("A", DaemonWire.readString(in));
++        Assert.assertEquals(0, in.readUnsignedByte());
++        Assert.assertEquals("com.b", DaemonWire.readString(in));
++        Assert.assertEquals("B", DaemonWire.readString(in));
++        Assert.assertEquals(1, in.readUnsignedByte());
++        Assert.assertEquals(0, in.available());
++    }
++
++    @Test
++    public void testWriteNullAppsListWritesEmptyList() throws Exception {
++        byte[] actual = serialize(DaemonMessages.createAppsListResponse(45L, null));
++
++        DataInputStream in = new DataInputStream(new ByteArrayInputStream(actual));
++        Assert.assertEquals(DaemonMessages.TYPE_RESPONSE_APPS_LIST, in.readUnsignedByte());
++        Assert.assertEquals(45L, in.readLong());
++        Assert.assertEquals(0, in.readInt());
++        Assert.assertEquals(0, in.available());
++    }
++
++    @Test
++    public void testNullOwnerPackageNameAndEmptyApps() throws Exception {
++        DisplayInfo info = new DisplayInfo(1, new Size(100, 100), 0, 0, 0, 160, null, -1, false, null, 0);
++        byte[] actual = serialize(DaemonMessages.createActiveDisplayInfosResponse(1L, new DisplayInfo[]{info}));
++
++        DataInputStream in = new DataInputStream(new ByteArrayInputStream(actual));
++        Assert.assertEquals(DaemonMessages.TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS, in.readUnsignedByte());
++        in.readLong();
++        Assert.assertEquals(1, in.readInt());
++        in.readInt(); // displayId
++        in.readInt(); // width
++        in.readInt(); // height
++        in.readInt(); // dpi
++        in.readInt(); // rotation
++        in.readInt(); // mirrorDisplayId
++        Assert.assertEquals(0, in.readUnsignedByte()); // owned
++        Assert.assertEquals(0, in.readInt()); // ownerUid
++        // A null owner package is serialized as a zero-length string frame.
++        Assert.assertEquals("", DaemonWire.readString(in));
++    }
++
++    @Test
++    public void testUnknownDaemonTypeIsNotHandled() throws Exception {
++        ByteArrayOutputStream bos = new ByteArrayOutputStream();
++        boolean handled = DaemonDeviceMessageWriter.write(DeviceMessage.createEmpty(12345),
++                new DataOutputStream(bos));
++        Assert.assertFalse(handled);
++        Assert.assertEquals(0, bos.size());
++    }
++
++    @Test
++    public void testSingleAppSerializationIsStable() throws Exception {
++        byte[] first = serialize(DaemonMessages.createAppsListResponse(1L, Collections.singletonList(
++                new DeviceApp("com.x", "X", false))));
++        byte[] second = serialize(DaemonMessages.createAppsListResponse(1L, Collections.singletonList(
++                new DeviceApp("com.x", "X", false))));
++        Assert.assertArrayEquals(first, second);
++    }
++}

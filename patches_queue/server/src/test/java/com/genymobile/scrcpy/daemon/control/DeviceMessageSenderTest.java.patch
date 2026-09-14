@@ -1,0 +1,97 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/control/DeviceMessageSenderTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DeviceMessageSenderTest.java
+new file mode 100644
+index 00000000..be5d09af
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DeviceMessageSenderTest.java
+@@ -0,0 +1,91 @@
++package com.genymobile.scrcpy.daemon.control;
++
++import com.genymobile.scrcpy.control.ControlChannel;
++import com.genymobile.scrcpy.control.DeviceMessage;
++import com.genymobile.scrcpy.control.DeviceMessageSender;
++import com.genymobile.scrcpy.util.Ln;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.util.concurrent.TimeUnit;
++
++public class DeviceMessageSenderTest {
++
++    static {
++        // Unit tests run on the JVM where android.util.Log is not mocked: keep the logger above
++        // the level that would reach it (only the queue-full warning path is exercised here).
++        Ln.initLogLevel(Ln.Level.ERROR);
++    }
++
++    private static DeviceMessageSender newSender(ByteArrayOutputStream bos) throws IOException {
++        return new DeviceMessageSender(new ControlChannel(new ByteArrayInputStream(new byte[0]), bos));
++    }
++
++    @Test
++    public void testAwaitDrainedReturnsAfterQueueFlushed() throws Exception {
++        ByteArrayOutputStream bos = new ByteArrayOutputStream();
++        DeviceMessageSender sender = newSender(bos);
++        try {
++            sender.send(DeviceMessage.createClipboard("one"));
++            sender.send(DeviceMessage.createClipboard("two"));
++            sender.send(DeviceMessage.createClipboard("three"));
++            sender.start();
++
++            Assert.assertTrue(sender.awaitDrained(2000));
++
++            String out = new String(bos.toByteArray(), StandardCharsets.UTF_8);
++            Assert.assertTrue(out.contains("one"));
++            Assert.assertTrue(out.contains("two"));
++            Assert.assertTrue(out.contains("three"));
++        } finally {
++            sender.stop();
++            sender.join();
++        }
++    }
++
++    @Test
++    public void testAwaitDrainedTimesOutWhenSenderNotStarted() throws Exception {
++        ByteArrayOutputStream bos = new ByteArrayOutputStream();
++        DeviceMessageSender sender = newSender(bos);
++        try {
++            sender.send(DeviceMessage.createClipboard("never written"));
++
++            long start = System.nanoTime();
++            Assert.assertFalse(sender.awaitDrained(100));
++            Assert.assertTrue("awaitDrained must respect its timeout",
++                    System.nanoTime() - start >= TimeUnit.MILLISECONDS.toNanos(90));
++            Assert.assertEquals(0, bos.size());
++        } finally {
++            sender.stop();
++        }
++    }
++
++    /**
++     * Messages dropped on a full queue must not stay counted as pending: the {@code pending}
++     * counter would then never reach zero and awaitDrained() would always time out.
++     */
++    @Test
++    public void testQueueFullDoesNotLeakPendingCount() throws Exception {
++        ByteArrayOutputStream bos = new ByteArrayOutputStream();
++        DeviceMessageSender sender = newSender(bos);
++        try {
++            // The queue holds 64 messages; overflow the 6 last ones.
++            for (int i = 0; i < 70; i++) {
++                sender.send(DeviceMessage.createClipboard("m" + i));
++            }
++            Assert.assertEquals(0, bos.size());
++
++            sender.start();
++            Assert.assertTrue("pending must reach zero despite dropped messages", sender.awaitDrained(5000));
++            Assert.assertTrue(bos.size() > 0);
++        } finally {
++            sender.stop();
++            sender.join();
++        }
++    }
++}

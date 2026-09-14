@@ -3,16 +3,17 @@
 本目录保存 VirtualDisplay daemon 对 scrcpy 子模块 `server/` 的补丁集合。
 补丁路径前缀（`server/...`、`gradlew`）相对目标仓库根 **`daemon/scrcpy`**。
 
-共 **59 个补丁**：38 个新增文件 + 21 个修改上游文件。
+共 **66 个补丁**：45 个新增文件（38 个 daemon 源码 + 7 个单元测试）+ 21 个修改上游文件。
 
-> 应用工具：`../tools/apply_patches.sh`（`--force` 可先还原 baseline 再重放）、
-> `../tools/test_compilation.sh`（reset 到 pristine master → 重放 → 编译）。
+> 应用工具：`../tools/apply_patches.sh`（逐补丁判定 APPLIED/CLEAN/CONFLICT，普通重跑即可
+> 修复缺失文件；`--force` 可先还原 baseline 再整体重放）、
+> `../tools/test_compilation.sh`（reset 到 pristine master → 重放 → 编译 → 跑单元测试）。
 > `./apply.sh`（`list` / `check` / `apply` / `reverse`）仍可用于逐个查看补丁状态。
 > 单个补丁的生成：`../tools/gen_patch.sh <相对 scrcpy 根的路径>`，把输出重定向到本目录同名 `.patch`。
 
 ---
 
-## 1. 新增文件（38 个）
+## 1. 新增文件（45 个）
 
 按包分组。这些是 daemon 模式新增的独立实现，**无相互依赖**，可任意序应用，
 但需在引用它们的「修改上游」补丁之前应用（保证编译正确）。
@@ -68,6 +69,21 @@
 | `daemon/video/FrameBroadcasterRegistry.java.patch` | `daemon/video/FrameBroadcasterRegistry.java` |
 | `daemon/video/Frame.java.patch` | `daemon/video/Frame.java` |
 | `daemon/video/VideoSubscriber.java.patch` | `daemon/video/VideoSubscriber.java` |
+
+### 1.4 单元测试（7）
+
+目标目录前缀 `server/src/test/java/com/genymobile/scrcpy/`。纯 JVM 逻辑测试，
+由 `tools/test_compilation.sh` 的 `:server:testDebugUnitTest` 步骤执行。
+
+| 补丁 | 覆盖内容 |
+|---|---|
+| `daemon/DaemonArgsTest.java.patch` | `strip` / `changeDisplayId` / `mergeOptions`（含 blocked key 过滤与畸形行处理） |
+| `daemon/control/DaemonControlMessageReaderTest.java.patch` | daemon 请求载荷解析（含 `CONFIGURE_SESSION` entriesCount 越界拒绝） |
+| `daemon/control/DaemonDeviceMessageWriterTest.java.patch` | daemon 响应序列化（generic / displays / infos / apps，经 `DeviceMessageWriter` 全路径） |
+| `daemon/control/DeviceMessageSenderTest.java.patch` | `awaitDrained` 排空等待、超时语义、队列满时 pending 计数不漂移 |
+| `daemon/video/ByteArrayPoolTest.java.patch` | 桶对齐（2 的幂）、回收复用、非 2 幂不入池、容量上限 |
+| `daemon/video/FrameTest.java.patch` | header/meta 无池化 buffer、packet 拷贝语义、retain/release 引用计数、droppable |
+| `daemon/video/VideoSubscriberTest.java.patch` | 关闭后 deliver 释放帧、`close()`/`deliver()` 并发竞态回归、关闭时排空队列 |
 
 ---
 
@@ -138,6 +154,7 @@
 - **CONFLICT**：目标工作区已漂移（内容与补丁基线不一致），需人工处理。
 
 > 注意：由于 scrcpy 工作区本身就是补丁的物化结果，`apply.sh check` 会把多数补丁标为
-> **CONFLICT**。这表示「补丁与工作区现况不一致」，并非错误；若需从干净基线重放，
-> 请使用 `../tools/apply_patches.sh --force`（会先 `git checkout`/`git clean` 还原
-> baseline 再重放），或 `../tools/test_compilation.sh`（额外执行一次编译验证）。
+> **CONFLICT**。这表示「补丁与工作区现况不一致」，并非错误。修复请使用
+> `../tools/apply_patches.sh`：它会逐补丁判定状态，普通重跑即可补齐缺失/漂移的文件；
+> `--force` 则先 `git checkout`/`git clean` 还原 baseline 后整体重放；
+> `../tools/test_compilation.sh` 在此基础上额外执行编译与单元测试验证。

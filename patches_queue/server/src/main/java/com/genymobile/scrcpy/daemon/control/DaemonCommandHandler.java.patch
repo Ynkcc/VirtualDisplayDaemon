@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
 new file mode 100644
-index 00000000..41862b60
+index 00000000..5569f0fa
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonCommandHandler.java
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,338 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -35,6 +35,12 @@ index 00000000..41862b60
 + * {@link DeviceMessageSender}。
 + */
 +public final class DaemonCommandHandler implements ControlMessageExtension {
++
++    /**
++     * Upper bound on how long {@code EXIT_DAEMON} waits for its OK reply to reach the socket before
++     * tearing the connection down anyway.
++     */
++    private static final long EXIT_DRAIN_TIMEOUT_MS = 500;
 +
 +    private static class HandlerEntry {
 +        private final ExecutionPolicy policy;
@@ -252,11 +258,18 @@ index 00000000..41862b60
 +            // 在专用 exitExecutor（不被 close() 关闭）上执行，使 daemon 一定能走到
 +            // requestExit() + close()，即便任务体自身调用了 close()。
 +            exitExecutor.submit(() -> {
-+                try {
-+                    Thread.sleep(100);
-+                } catch (InterruptedException e) {
-+                    Thread.currentThread().interrupt();
-+                    Ln.d("handleExitDaemon: delay interrupted, proceeding to exit");
++                // 先等 OK 回包真正写入 socket 再拆连接：固定 sleep 是竞态（慢设备或大队列
++                // 下回包会随连接一起被丢弃），这里改为等待发送队列排空。
++                if (sender != null) {
++                    try {
++                        if (!sender.awaitDrained(EXIT_DRAIN_TIMEOUT_MS)) {
++                            Ln.w("handleExitDaemon: OK reply not flushed within " + EXIT_DRAIN_TIMEOUT_MS
++                                    + "ms; exiting anyway");
++                        }
++                    } catch (InterruptedException e) {
++                        Thread.currentThread().interrupt();
++                        Ln.w("handleExitDaemon: interrupted while waiting for the reply to flush; exiting anyway");
++                    }
 +                }
 +                exitCoordinator.requestExit();
 +                close();

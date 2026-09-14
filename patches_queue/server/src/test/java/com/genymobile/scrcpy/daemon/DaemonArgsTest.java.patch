@@ -1,0 +1,109 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/DaemonArgsTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/DaemonArgsTest.java
+new file mode 100644
+index 00000000..4fad984e
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/DaemonArgsTest.java
+@@ -0,0 +1,103 @@
++package com.genymobile.scrcpy.daemon;
++
++import com.genymobile.scrcpy.util.Ln;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++public class DaemonArgsTest {
++
++    static {
++        // Unit tests run on the JVM where android.util.Log is not mocked: keep the logger above
++        // the level that would reach it (these tests never exercise an error path).
++        Ln.initLogLevel(Ln.Level.ERROR);
++    }
++
++    @Test
++    public void testStripRemovesDaemonOnlyKeys() {
++        String[] stripped = DaemonArgs.strip(new String[]{
++                "0.14", "daemon=true", "daemon_port=27183", "video_bit_rate=8000000",
++                "daemon_bind_address=127.0.0.1", "daemon_secret_token=abc", "max_size=1024"});
++        Assert.assertArrayEquals(new String[]{"0.14", "video_bit_rate=8000000", "max_size=1024"}, stripped);
++    }
++
++    @Test
++    public void testStripOnlyMatchesTheKeyPart() {
++        // "video=daemon" has "video" as its key: it must survive.
++        Assert.assertArrayEquals(new String[]{"video=daemon"}, DaemonArgs.strip(new String[]{"video=daemon"}));
++    }
++
++    @Test
++    public void testStripNullYieldsEmptyArray() {
++        Assert.assertEquals(0, DaemonArgs.strip(null).length);
++    }
++
++    @Test
++    public void testChangeDisplayIdReplacesExisting() {
++        Assert.assertArrayEquals(new String[]{"0.14", "display_id=7", "max_size=100"},
++                DaemonArgs.changeDisplayId(new String[]{"0.14", "display_id=3", "max_size=100"}, 7));
++    }
++
++    @Test
++    public void testChangeDisplayIdAppendsWhenMissing() {
++        Assert.assertArrayEquals(new String[]{"0.14", "max_size=100", "display_id=7"},
++                DaemonArgs.changeDisplayId(new String[]{"0.14", "max_size=100"}, 7));
++    }
++
++    @Test
++    public void testChangeDisplayIdReplacesAllOccurrences() {
++        Assert.assertArrayEquals(new String[]{"display_id=7", "display_id=7"},
++                DaemonArgs.changeDisplayId(new String[]{"display_id=1", "display_id=2"}, 7));
++    }
++
++    @Test
++    public void testMergeOptionsOverridesAndPreservesOrder() {
++        String[] merged = DaemonArgs.mergeOptions(
++                new String[]{"0.14", "max_size=1024", "video_bit_rate=8000000"},
++                "video_bit_rate=2000000\nmax_fps=60");
++        Assert.assertArrayEquals(new String[]{"0.14", "max_size=1024", "video_bit_rate=2000000", "max_fps=60"}, merged);
++    }
++
++    @Test
++    public void testMergeOptionsBlocksProtectedKeys() {
++        String[] blocked = {
++                "daemon=true", "daemon_port=1", "daemon_bind_address=0.0.0.0", "daemon_secret_token=x",
++                "display_id=1", "new_display=1920x1080", "scid=5", "tunnel_forward=true", "cleanup=false",
++                "power_on=false", "power_off_on_close=true", "list_encoders=true", "list_displays=true",
++                "list_cameras=true", "list_camera_sizes=true", "list_apps=true"};
++        for (String kv : blocked) {
++            String[] merged = DaemonArgs.mergeOptions(new String[]{"0.14", "max_size=1024"}, kv);
++            Assert.assertEquals("blocked key must be dropped: " + kv, 2, merged.length);
++            Assert.assertEquals("max_size=1024", merged[1]);
++        }
++    }
++
++    @Test
++    public void testMergeOptionsIgnoresMalformedLines() {
++        String[] merged = DaemonArgs.mergeOptions(new String[]{"0.14", "max_size=1024"}, "\n  \nnotakv\nmax_fps=30\n");
++        Assert.assertArrayEquals(new String[]{"0.14", "max_size=1024", "max_fps=30"}, merged);
++    }
++
++    @Test
++    public void testMergeOptionsKeepsValueContainingEquals() {
++        String[] merged = DaemonArgs.mergeOptions(new String[]{"0.14"}, "video_codec_options=profile=1");
++        Assert.assertArrayEquals(new String[]{"0.14", "video_codec_options=profile=1"}, merged);
++    }
++
++    @Test
++    public void testMergeOptionsNullKvKeepsBaseArgs() {
++        Assert.assertArrayEquals(new String[]{"0.14", "max_size=1024"},
++                DaemonArgs.mergeOptions(new String[]{"0.14", "max_size=1024"}, null));
++    }
++
++    @Test
++    public void testMergeOptionsEmptyKvKeepsBaseArgs() {
++        Assert.assertArrayEquals(new String[]{"0.14", "max_size=1024"},
++                DaemonArgs.mergeOptions(new String[]{"0.14", "max_size=1024"}, ""));
++    }
++
++    @Test(expected = IllegalArgumentException.class)
++    public void testMergeOptionsRequiresClientVersionFirst() {
++        DaemonArgs.mergeOptions(new String[0], "max_size=1024");
++    }
++}

@@ -1,27 +1,80 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java b/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java
-index dc5e6be0..58eaac64 100644
+index dc5e6be0..25f304e0 100644
 --- a/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java
 +++ b/server/src/main/java/com/genymobile/scrcpy/control/DeviceMessageSender.java
-@@ -11,7 +11,7 @@ public final class DeviceMessageSender {
+@@ -5,28 +5,68 @@ import com.genymobile.scrcpy.util.Ln;
+ import java.io.IOException;
+ import java.util.concurrent.ArrayBlockingQueue;
+ import java.util.concurrent.BlockingQueue;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicInteger;
+ 
+ public final class DeviceMessageSender {
+ 
++    /** Polling interval of {@link #awaitDrained(long)}. */
++    private static final long AWAIT_POLL_INTERVAL_MS = 5;
++
      private final ControlChannel controlChannel;
  
      private Thread thread;
 -    private final BlockingQueue<DeviceMessage> queue = new ArrayBlockingQueue<>(16);
 +    private final BlockingQueue<DeviceMessage> queue = new ArrayBlockingQueue<>(64);
++    /** Messages queued but not yet handed to the control channel. */
++    private final AtomicInteger pending = new AtomicInteger();
  
      public DeviceMessageSender(ControlChannel controlChannel) {
          this.controlChannel = controlChannel;
-@@ -19,7 +19,8 @@ public final class DeviceMessageSender {
+     }
  
      public void send(DeviceMessage msg) {
++        // Count before offering: the sender thread may consume the message (and
++        // decrement) before this method returns, which would make pending
++        // transiently negative if the increment happened after the offer.
++        pending.incrementAndGet();
          if (!queue.offer(msg)) {
 -            Ln.w("Device message dropped: " + msg.getType());
++            pending.decrementAndGet();
 +            Ln.w("Device message dropped (queue full, backlog=" + queue.size() + "): type="
 +                    + msg.getType() + " — sender thread likely blocked on socket write");
++        }
++    }
++
++    /**
++     * Wait until every queued message has been written (and flushed) to the control channel, or
++     * until {@code timeoutMillis} elapsed.
++     *
++     * <p>Needed by {@code EXIT_DAEMON}: the daemon replies before tearing the connection down, and
++     * a fixed sleep is a race (a slow device or a large backlog would drop the reply). Returns
++     * {@code false} if the queue was still non-empty when the deadline expired — including the
++     * case where the sender thread died, in which case the queue is never drained.
++     *
++     * @param timeoutMillis maximum time to wait
++     * @return {@code true} if the send queue was observed empty
++     */
++    public boolean awaitDrained(long timeoutMillis) throws InterruptedException {
++        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
++        while (pending.get() > 0) {
++            if (System.nanoTime() - deadline >= 0) {
++                return false;
++            }
++            Thread.sleep(AWAIT_POLL_INTERVAL_MS);
+         }
++        return true;
+     }
+ 
+     private void loop() throws IOException, InterruptedException {
+         while (!Thread.currentThread().isInterrupted()) {
+             DeviceMessage msg = queue.take();
+-            controlChannel.send(msg);
++            try {
++                controlChannel.send(msg);
++            } finally {
++                pending.decrementAndGet();
++            }
          }
      }
  
-@@ -36,6 +37,12 @@ public final class DeviceMessageSender {
+@@ -36,6 +76,12 @@ public final class DeviceMessageSender {
                  loop();
              } catch (IOException | InterruptedException e) {
                  // this is expected on close

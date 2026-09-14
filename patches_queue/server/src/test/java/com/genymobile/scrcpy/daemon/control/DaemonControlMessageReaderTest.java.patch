@@ -1,0 +1,219 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReaderTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReaderTest.java
+new file mode 100644
+index 00000000..33a7d980
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/control/DaemonControlMessageReaderTest.java
+@@ -0,0 +1,213 @@
++package com.genymobile.scrcpy.daemon.control;
++
++import com.genymobile.scrcpy.control.ControlMessage;
++import com.genymobile.scrcpy.daemon.net.DaemonWire;
++import com.genymobile.scrcpy.daemon.net.TcpDesktopConnection;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.IOException;
++
++public class DaemonControlMessageReaderTest {
++
++    /** Serializes a request payload body (everything after the type byte). */
++    private interface BodyWriter {
++        void write(DataOutputStream dos) throws IOException;
++    }
++
++    private static byte[] serialize(BodyWriter body) throws IOException {
++        ByteArrayOutputStream bos = new ByteArrayOutputStream();
++        DataOutputStream dos = new DataOutputStream(bos);
++        body.write(dos);
++        dos.flush();
++        return bos.toByteArray();
++    }
++
++    private static ControlMessage read(int type, byte[] body) throws IOException {
++        return DaemonControlMessageReader.read(type, new DataInputStream(new ByteArrayInputStream(body)));
++    }
++
++    @Test
++    public void testParseCreateVirtualDisplay() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(0x0102030405060708L);
++            DaemonWire.writeString(dos, "vd-1");
++            dos.writeInt(1920);
++            dos.writeInt(1080);
++            dos.writeInt(320);
++            dos.writeInt(0x123);
++            dos.writeInt(4);
++        });
++        ControlMessage msg = read(DaemonMessages.TYPE_CREATE_VIRTUAL_DISPLAY, body);
++
++        Assert.assertEquals(DaemonMessages.TYPE_CREATE_VIRTUAL_DISPLAY, msg.getType());
++        DaemonControlMessage payload = DaemonMessages.payload(msg);
++        Assert.assertEquals(0x0102030405060708L, payload.getSequence());
++        Assert.assertEquals("vd-1", payload.getText());
++        Assert.assertEquals(1920, payload.getWidth());
++        Assert.assertEquals(1080, payload.getHeight());
++        Assert.assertEquals(320, payload.getDpi());
++        Assert.assertEquals(0x123, payload.getFlags());
++        Assert.assertEquals(4, payload.getDisplayId());
++    }
++
++    @Test
++    public void testParseReleaseVirtualDisplay() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(7L);
++            dos.writeInt(12);
++            dos.writeByte(1);
++        });
++        DaemonControlMessage payload = DaemonMessages.payload(
++                read(DaemonMessages.TYPE_RELEASE_VIRTUAL_DISPLAY, body));
++
++        Assert.assertEquals(7L, payload.getSequence());
++        Assert.assertEquals(12, payload.getDisplayId());
++        Assert.assertEquals(DaemonControlMessage.RELEASE_MOVE_TASKS_TO_DEFAULT, payload.getFlags());
++
++        byte[] keepBody = serialize(dos -> {
++            dos.writeLong(7L);
++            dos.writeInt(12);
++            dos.writeByte(0);
++        });
++        payload = DaemonMessages.payload(read(DaemonMessages.TYPE_RELEASE_VIRTUAL_DISPLAY, keepBody));
++        Assert.assertEquals(DaemonControlMessage.RELEASE_KEEP_TASKS, payload.getFlags());
++    }
++
++    @Test
++    public void testParseResizeVirtualDisplay() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(11L);
++            dos.writeInt(5);
++            dos.writeInt(800);
++            dos.writeInt(600);
++            dos.writeInt(160);
++        });
++        DaemonControlMessage payload = DaemonMessages.payload(
++                read(DaemonMessages.TYPE_RESIZE_VIRTUAL_DISPLAY, body));
++
++        Assert.assertEquals(11L, payload.getSequence());
++        Assert.assertEquals(5, payload.getDisplayId());
++        Assert.assertEquals(800, payload.getWidth());
++        Assert.assertEquals(600, payload.getHeight());
++        Assert.assertEquals(160, payload.getDpi());
++    }
++
++    @Test
++    public void testParseSequenceOnlyRequests() throws Exception {
++        byte[] body = serialize(dos -> dos.writeLong(99L));
++        int[] types = {
++                DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_IDS,
++                DaemonMessages.TYPE_GET_ACTIVE_DISPLAY_INFOS,
++                DaemonMessages.TYPE_EXIT_DAEMON,
++                DaemonMessages.TYPE_LIST_APPS,
++                DaemonMessages.TYPE_PING};
++        for (int type : types) {
++            DaemonControlMessage payload = DaemonMessages.payload(read(type, body));
++            Assert.assertEquals("sequence mismatch for type " + type, 99L, payload.getSequence());
++        }
++    }
++
++    @Test
++    public void testParseRotationCommands() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(5L);
++            dos.writeInt(9);
++            dos.writeInt(2);
++        });
++        DaemonControlMessage payload = DaemonMessages.payload(read(DaemonMessages.TYPE_FREEZE_ROTATION, body));
++        Assert.assertEquals(5L, payload.getSequence());
++        Assert.assertEquals(9, payload.getDisplayId());
++        Assert.assertEquals(2, payload.getRotation());
++
++        byte[] queryBody = serialize(dos -> {
++            dos.writeLong(6L);
++            dos.writeInt(9);
++        });
++        payload = DaemonMessages.payload(read(DaemonMessages.TYPE_GET_ROTATION, queryBody));
++        Assert.assertEquals(6L, payload.getSequence());
++        Assert.assertEquals(9, payload.getDisplayId());
++    }
++
++    @Test
++    public void testParseStartActivity() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(21L);
++            DaemonWire.writeString(dos, "com.example.app");
++            dos.writeInt(2);
++        });
++        DaemonControlMessage payload = DaemonMessages.payload(read(DaemonMessages.TYPE_START_ACTIVITY, body));
++        Assert.assertEquals(21L, payload.getSequence());
++        Assert.assertEquals("com.example.app", payload.getText());
++        Assert.assertEquals(2, payload.getDisplayId());
++    }
++
++    @Test
++    public void testParseConfigureSessionMaskOnly() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(1L);
++            DaemonWire.writeString(dos, "max_size=1024");
++            dos.writeInt(0b101);
++            dos.writeInt(0);
++        });
++        DaemonControlMessage payload = DaemonMessages.payload(read(DaemonMessages.TYPE_CONFIGURE_SESSION, body));
++
++        Assert.assertEquals("max_size=1024", payload.getOptionsKv());
++        Assert.assertEquals(0b101, payload.getRolesMask());
++        Assert.assertTrue(payload.getRolesEntries().isEmpty());
++    }
++
++    @Test
++    public void testParseConfigureSessionWithEntries() throws Exception {
++        byte[] body = serialize(dos -> {
++            dos.writeLong(2L);
++            DaemonWire.writeString(dos, "");
++            dos.writeInt(0);
++            dos.writeInt(2);
++            dos.writeByte(TcpDesktopConnection.ROLE_VIDEO);
++            DaemonWire.writeInt32(dos, 3);
++            dos.writeByte(TcpDesktopConnection.ROLE_CONTROL);
++            DaemonWire.writeInt32(dos, 4);
++        });
++        DaemonControlMessage payload = DaemonMessages.payload(read(DaemonMessages.TYPE_CONFIGURE_SESSION, body));
++
++        Assert.assertEquals(2, payload.getRolesEntries().size());
++        Assert.assertEquals(
++                new TcpDesktopConnection.RoleDisplayKey(TcpDesktopConnection.ROLE_VIDEO, 3),
++                payload.getRolesEntries().get(0));
++        Assert.assertEquals(
++                new TcpDesktopConnection.RoleDisplayKey(TcpDesktopConnection.ROLE_CONTROL, 4),
++                payload.getRolesEntries().get(1));
++    }
++
++    @Test
++    public void testParseConfigureSessionRejectsInvalidEntriesCount() throws Exception {
++        // A corrupted count must fail the message instead of silently degrading to mask-only:
++        // the entry bytes already written by the client would otherwise desynchronize the stream.
++        int[] invalid = {-1, 65};
++        for (int count : invalid) {
++            byte[] body = serialize(dos -> {
++                dos.writeLong(3L);
++                DaemonWire.writeString(dos, "");
++                dos.writeInt(0);
++                dos.writeInt(count);
++            });
++            try {
++                read(DaemonMessages.TYPE_CONFIGURE_SESSION, body);
++                Assert.fail("entriesCount=" + count + " must be rejected");
++            } catch (IOException e) {
++                // expected
++            }
++        }
++    }
++
++    @Test
++    public void testUnknownTypeReturnsNull() throws Exception {
++        Assert.assertNull(read(999, new byte[0]));
++    }
++}

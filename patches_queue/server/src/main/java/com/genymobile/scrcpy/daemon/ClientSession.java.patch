@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
 new file mode 100644
-index 00000000..69f2f1a0
+index 00000000..acd4b39a
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/ClientSession.java
-@@ -0,0 +1,471 @@
+@@ -0,0 +1,473 @@
 +package com.genymobile.scrcpy.daemon;
 +
 +import com.genymobile.scrcpy.Options;
@@ -43,7 +43,7 @@ index 00000000..69f2f1a0
 + *   CONFIGURED — 客户端已发送 CONFIGURE_SESSION（optionsKv + rolesEntries 或
 + *                legacy rolesMask）。此时才接受声明过的 (role, displayId) 的
 + *                ROLE_VIDEO / ROLE_AUDIO / ROLE_CONTROL socket；同一 role 可为
-+ *                不同显示器多次打开。
++ *                不同显示器多次打开。CONFIGURE_SESSION 为一次性握手，重复发送被拒。
 + *   CLOSED     — 会话正在拆除；一切请求被拒。
 + * </pre>
 + */
@@ -173,6 +173,12 @@ index 00000000..69f2f1a0
 +        if (exited.get() || phase == Phase.CLOSED) {
 +            throw new RuntimeException("Session already exited");
 +        }
++        // CONFIGURE_SESSION is a one-shot handshake. Re-applying it would silently swap the
++        // session options while already-bound controllers keep the previous ones, so a second
++        // message is rejected instead of being merged (see the phase contract above).
++        if (phase == Phase.CONFIGURED) {
++            throw new IllegalStateException("CONFIGURE_SESSION already applied for this session");
++        }
 +        String[] merged = DaemonArgs.mergeOptions(baseArgs, optionsKv);
 +        Options parsed = Options.parse(merged);
 +
@@ -279,16 +285,7 @@ index 00000000..69f2f1a0
 +                if (staleRunner != null) {
 +                    // 带超时 join 作为安全网：若某个陈旧 controller 的 recv() 阻塞在无法
 +                    // 关闭的 socket 上，无限 join 会永久占住本 role 线程。
-+                    try {
-+                        staleRunner.join(3000);
-+                        Thread st = staleRunner.getThread();
-+                        if (st != null && st.isAlive()) {
-+                            Ln.w("Session[" + sessionId + "]: stale control loop for displayId=" + displayId
-+                                    + " did not stop within 3s; leaking daemon thread");
-+                        }
-+                    } catch (InterruptedException e) {
-+                        Thread.currentThread().interrupt();
-+                    }
++                    joinControlLoop(staleRunner, 3000, "stale, displayId=" + displayId);
 +                }
 +            }
 +
@@ -451,16 +448,7 @@ index 00000000..69f2f1a0
 +        connection.close();
 +
 +        for (ControlLoopRunner r : runnerCopy) {
-+            try {
-+                r.join(STOP_JOIN_TIMEOUT_MS);
-+                Thread t = r.getThread();
-+                if (t != null && t.isAlive()) {
-+                    Ln.e("Session[" + sessionId + "]: control loop thread " + t.getName()
-+                            + " still alive after " + STOP_JOIN_TIMEOUT_MS + "ms; leaking daemon thread");
-+                }
-+            } catch (InterruptedException ignored) {
-+                Thread.currentThread().interrupt();
-+            }
++            joinControlLoop(r, STOP_JOIN_TIMEOUT_MS, "cleanup");
 +        }
 +        for (Controller c : ctrlCopy) {
 +            try {
@@ -472,6 +460,20 @@ index 00000000..69f2f1a0
 +
 +        if (server != null) {
 +            server.removeSession(sessionId);
++        }
++    }
++
++    /** 带超时 join 控制循环线程；超时仍在运行则告警并放弃（泄漏的 daemon 线程由 JVM 托管）。 */
++    private void joinControlLoop(ControlLoopRunner runner, long timeoutMs, String context) {
++        try {
++            runner.join(timeoutMs);
++            Thread t = runner.getThread();
++            if (t != null && t.isAlive()) {
++                Ln.e("Session[" + sessionId + "]: control loop thread " + t.getName() + " (" + context + ")"
++                        + " still alive after " + timeoutMs + "ms; leaking daemon thread");
++            }
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
 +        }
 +    }
 +}

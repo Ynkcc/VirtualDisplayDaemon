@@ -1,0 +1,135 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/video/VideoSubscriberTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/video/VideoSubscriberTest.java
+new file mode 100644
+index 00000000..03728866
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/video/VideoSubscriberTest.java
+@@ -0,0 +1,129 @@
++package com.genymobile.scrcpy.daemon.video;
++
++import com.genymobile.scrcpy.device.Streamer;
++import com.genymobile.scrcpy.video.VideoCodec;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++import java.io.FileDescriptor;
++import java.lang.reflect.Field;
++import java.nio.ByteBuffer;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
++
++public class VideoSubscriberTest {
++
++    private static final int PAYLOAD_SIZE = 1024;
++
++    /**
++     * Drain the pool bucket and report whether {@code expected} became available again, i.e. its
++     * reference count dropped to zero.
++     */
++    private static boolean isRecycled(byte[] expected) {
++        for (int i = 0; i < 16; i++) {
++            if (ByteArrayPool.get(expected.length) == expected) {
++                return true;
++            }
++        }
++        return false;
++    }
++
++    private static Frame newPacket() {
++        ByteBuffer buffer = ByteBuffer.allocate(PAYLOAD_SIZE);
++        buffer.flip();
++        return Frame.packet(buffer, 0L, false, true);
++    }
++
++    private static VideoSubscriber newSubscriber() {
++        // The streamer is never written to: start() is not called, so no write thread exists and
++        // no byte ever reaches the (unused) file descriptor.
++        return new VideoSubscriber(1, new Streamer(new FileDescriptor(), VideoCodec.H264, false, false));
++    }
++
++    private static Object queueLockOf(VideoSubscriber sub) throws Exception {
++        Field field = VideoSubscriber.class.getDeclaredField("queueLock");
++        field.setAccessible(true);
++        return field.get(sub);
++    }
++
++    @Test
++    public void testDeliverAfterCloseReleasesFrame() {
++        VideoSubscriber sub = newSubscriber();
++        sub.close();
++
++        Frame frame = newPacket();
++        byte[] pooled = frame.getData();
++
++        sub.deliver(frame);
++
++        // The frame must be dropped, not enqueued into a queue nobody drains any more.
++        Assert.assertTrue(isRecycled(pooled));
++        Assert.assertFalse(sub.isAlive());
++    }
++
++    /**
++     * Regression test for the close()/deliver() race: deliver() checks {@code closed} outside the
++     * lock, so a frame could be enqueued after close() had already drained the queue and stopped
++     * the write thread. Such a frame is never written and its pooled buffer is never recycled.
++     */
++    @Test
++    public void testDeliverConcurrentWithCloseReleasesFrame() throws Exception {
++        final VideoSubscriber sub = newSubscriber();
++        final Object queueLock = queueLockOf(sub);
++
++        final Frame frame = newPacket();
++        final byte[] pooled = frame.getData();
++
++        // Reproduce the interleaving deterministically: hold the subscriber lock so deliver()
++        // passes its unlocked pre-check and then blocks on the monitor, flip `closed` the way
++        // close() would (it runs under the same lock), and only then let deliver() proceed.
++        final CountDownLatch delivered = new CountDownLatch(1);
++        synchronized (queueLock) {
++            Thread deliverer = new Thread(new Runnable() {
++                @Override
++                public void run() {
++                    sub.deliver(frame);
++                    delivered.countDown();
++                }
++            }, "test-deliver");
++            deliverer.start();
++
++            // BLOCKED means deliver() already evaluated its unlocked pre-check.
++            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
++            while (deliverer.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
++                Thread.sleep(1);
++            }
++            Assert.assertEquals(Thread.State.BLOCKED, deliverer.getState());
++
++            Field closedField = VideoSubscriber.class.getDeclaredField("closed");
++            closedField.setAccessible(true);
++            closedField.set(sub, true);
++        }
++
++        Assert.assertTrue(delivered.await(5, TimeUnit.SECONDS));
++        Assert.assertTrue("frame delivered after close() must be released, not enqueued", isRecycled(pooled));
++    }
++
++    @Test
++    public void testCloseDrainsQueuedFrames() {
++        VideoSubscriber sub = newSubscriber();
++
++        List<byte[]> pooled = new ArrayList<>();
++        for (int i = 0; i < 3; i++) {
++            Frame frame = newPacket();
++            pooled.add(frame.getData());
++            sub.deliver(frame);
++        }
++        for (byte[] array : pooled) {
++            Assert.assertFalse(isRecycled(array));
++        }
++
++        sub.close();
++        for (byte[] array : pooled) {
++            Assert.assertTrue(isRecycled(array));
++        }
++    }
++}

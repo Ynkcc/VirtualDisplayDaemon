@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
 new file mode 100644
-index 00000000..81d20545
+index 00000000..6e4e821c
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/video/VideoSubscriber.java
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,177 @@
 +package com.genymobile.scrcpy.daemon.video;
 +
 +import com.genymobile.scrcpy.device.Streamer;
@@ -65,6 +65,16 @@ index 00000000..81d20545
 +            return;
 +        }
 +        synchronized (queueLock) {
++            // Re-check under the lock: close() may have completed between the
++            // unlocked pre-check above and acquiring queueLock. Without this,
++            // the frame would be enqueued into a queue nobody drains any more
++            // (the write thread was already interrupted and exited), so its
++            // pooled buffer would never be recycled and it would never be
++            // written either.
++            if (closed) {
++                frame.release();
++                return;
++            }
 +            if (queue.offer(frame)) {
 +                return;
 +            }

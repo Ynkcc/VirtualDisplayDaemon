@@ -8,6 +8,11 @@
 # patches_queue/. This script is the single entry point that materialises
 # those patches so the Android app can compile the daemon sources directly.
 #
+# Per-patch idempotency: every patch is classified on its own (APPLIED / CLEAN /
+# CONFLICT) before being applied, so a single missing or half-applied file is
+# repaired by a plain re-run — without needing --force, which discards every
+# local change in the submodule.
+#
 # Usage:
 #   tools/apply_patches.sh              # apply idempotently (skip if already applied)
 #   tools/apply_patches.sh --force      # restore baselines, re-apply from scratch
@@ -49,11 +54,34 @@ is_applied() {
     [ -d "${DAEMON_DIR_ABS}" ]
 }
 
-if is_applied && [ "${FORCE}" = false ]; then
-    echo "[apply_patches] daemon sources already applied (${DAEMON_DIR_REL}); nothing to do."
-    echo "                Re-run with --force to restore baselines and re-apply."
-    exit 0
-fi
+# Per-patch counters (populated by apply_one_patch).
+APPLIED_PATCH_COUNT=0
+SKIPPED_PATCH_COUNT=0
+CONFLICT_PATCH_COUNT=0
+
+# Classify and apply a single patch.
+#
+#   APPLIED  → the patch is already in the tree (its reverse applies cleanly)
+#   CLEAN    → the patch applies cleanly onto the current tree
+#   CONFLICT → neither direction applies: the tree drifted from both the
+#              baseline and the patched state, so applying it would either fail
+#              or silently produce a half-patched file. Report and let the
+#              caller decide (the caller turns this into a hard error).
+apply_one_patch() {
+    local patch_path="$1"
+    local rel="${patch_path#"${PATCHES_QUEUE_DIR}/"}"
+    if git apply --check --reverse "${patch_path}" >/dev/null 2>&1; then
+        echo "  ~ ${rel} (already applied; skipping)"
+        SKIPPED_PATCH_COUNT=$((SKIPPED_PATCH_COUNT + 1))
+    elif git apply --check "${patch_path}" >/dev/null 2>&1; then
+        echo "  + ${rel}"
+        git apply --recount --verbose "${patch_path}"
+        APPLIED_PATCH_COUNT=$((APPLIED_PATCH_COUNT + 1))
+    else
+        echo "  ! ${rel} (drifted: neither applies nor reverses cleanly)" >&2
+        CONFLICT_PATCH_COUNT=$((CONFLICT_PATCH_COUNT + 1))
+    fi
+}
 
 if [ "${FORCE}" = true ]; then
     echo "[apply_patches] --force: restoring scrcpy baselines before re-applying..."
@@ -83,38 +111,14 @@ fi
 # ---------------------------------------------------------------------------
 echo "[apply_patches] Applying gradlew.patch (at scrcpy root)..."
 if [ -f "${PATCHES_QUEUE_DIR}/gradlew.patch" ]; then
-    # Idempotency: gradlew.patch injects a Java-21 auto-detection block. If the
-    # marker is already present the patch has been applied; applying again would
-    # fail because the context no longer matches.
-    if grep -q 'JAVA_21_HOME="/usr/lib/jvm/java-21-openjdk"' gradlew; then
-        echo "[apply_patches] gradlew.patch already applied; skipping."
-    else
-        git apply --recount --verbose "${PATCHES_QUEUE_DIR}/gradlew.patch"
-    fi
+    apply_one_patch "${PATCHES_QUEUE_DIR}/gradlew.patch"
 else
     echo "[apply_patches] ${PATCHES_QUEUE_DIR}/gradlew.patch not found; skipping."
 fi
 
 echo "[apply_patches] Applying server patches (${PATCHES_QUEUE_DIR}/server)..."
-SERVER_PATCH_COUNT=0
-SKIPPED_PATCH_COUNT=0
 while IFS= read -r patch_path; do
-    # A patch is "new-file" when its diff header shows it is created from
-    # /dev/null (--- /dev/null). Such a file is only applied once: if it already
-    # exists the patch was already applied, so skip it to stay idempotent on
-    # partial re-runs. Modified-file patches must always be applied — their
-    # baseline was restored above, so the context will match.
-    if grep -q '^--- /dev/null' "${patch_path}"; then
-        target_rel="$(sed -n 's/^+++ b\/\(.*\)$/\1/p' "${patch_path}" | head -1)"
-        if [ -n "${target_rel}" ] && [ -f "${SCRCPY_DIR}/${target_rel}" ]; then
-            echo "  ~ $(basename "${patch_path}") (new-file already present; skipping)"
-            SKIPPED_PATCH_COUNT=$((SKIPPED_PATCH_COUNT + 1))
-            continue
-        fi
-    fi
-    echo "  + $(basename "${patch_path}")"
-    git apply --recount --verbose "${patch_path}"
-    SERVER_PATCH_COUNT=$((SERVER_PATCH_COUNT + 1))
+    apply_one_patch "${patch_path}"
 done < <(find "${PATCHES_QUEUE_DIR}/server" -name "*.patch" | sort)
 
 # Make sure the gradlew wrapper stays executable (gradlew.patch may touch it).
@@ -123,10 +127,16 @@ chmod +x ./gradlew
 # ---------------------------------------------------------------------------
 # Verify
 # ---------------------------------------------------------------------------
+if [ "${CONFLICT_PATCH_COUNT}" -gt 0 ]; then
+    echo "[apply_patches] ERROR: ${CONFLICT_PATCH_COUNT} patch(es) conflict with the current scrcpy tree." >&2
+    echo "                Re-run with --force to restore the pristine baseline and re-apply everything." >&2
+    exit 1
+fi
+
 if ! is_applied; then
     echo "[apply_patches] ERROR: daemon sources were not produced at ${DAEMON_DIR_REL}." >&2
     exit 1
 fi
 
-echo "[apply_patches] Done. Applied ${SERVER_PATCH_COUNT} server patch(es) (${SKIPPED_PATCH_COUNT} already present)."
+echo "[apply_patches] Done. Applied ${APPLIED_PATCH_COUNT} patch(es), skipped ${SKIPPED_PATCH_COUNT} already applied."
 echo "                Daemon sources ready under ${DAEMON_DIR_REL}."

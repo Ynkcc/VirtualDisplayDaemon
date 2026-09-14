@@ -1,9 +1,9 @@
 diff --git a/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java
 new file mode 100644
-index 00000000..ca466bce
+index 00000000..2e181305
 --- /dev/null
 +++ b/server/src/main/java/com/genymobile/scrcpy/daemon/control/DaemonMessages.java
-@@ -0,0 +1,264 @@
+@@ -0,0 +1,243 @@
 +package com.genymobile.scrcpy.daemon.control;
 +
 +import com.genymobile.scrcpy.control.ControlMessage;
@@ -13,6 +13,7 @@ index 00000000..ca466bce
 +import com.genymobile.scrcpy.model.DeviceApp;
 +
 +import java.util.List;
++import java.util.function.Consumer;
 +
 +/**
 + * daemon 模式控制/设备消息的唯一工厂：wire 类型常量（1xx 响应、2xx 请求）、
@@ -101,20 +102,35 @@ index 00000000..ca466bce
 +        return msg;
 +    }
 +
++    /** 请求构造脚手架：分配 DTO、写 sequence、挂载到指定类型的信封。 */
++    private static ControlMessage request(int type, long sequence, Consumer<DaemonControlMessage> setup) {
++        DaemonControlMessage dto = new DaemonControlMessage();
++        dto.setSequence(sequence);
++        setup.accept(dto);
++        return envelope(type, dto);
++    }
++
++    /** 响应构造脚手架：分配 DTO、写 sequence、挂载到指定类型的信封。 */
++    private static DeviceMessage response(int type, long sequence, Consumer<DaemonDeviceMessage> setup) {
++        DaemonDeviceMessage dto = new DaemonDeviceMessage();
++        dto.setSequence(sequence);
++        setup.accept(dto);
++        return envelope(type, dto);
++    }
++
 +    // ------------------------------------------------------------------
 +    // 请求构造器
 +    // ------------------------------------------------------------------
 +
 +    public static ControlMessage createCreateVirtualDisplay(long sequence, String name, int width, int height, int dpi, int flags, int displayId) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setText(name);
-+        dto.setWidth(width);
-+        dto.setHeight(height);
-+        dto.setDpi(dpi);
-+        dto.setFlags(flags);
-+        dto.setDisplayId(displayId);
-+        return envelope(TYPE_CREATE_VIRTUAL_DISPLAY, dto);
++        return request(TYPE_CREATE_VIRTUAL_DISPLAY, sequence, dto -> {
++            dto.setText(name);
++            dto.setWidth(width);
++            dto.setHeight(height);
++            dto.setDpi(dpi);
++            dto.setFlags(flags);
++            dto.setDisplayId(displayId);
++        });
 +    }
 +
 +    /**
@@ -123,78 +139,59 @@ index 00000000..ca466bce
 +     * @param moveTasksToDefaultDisplay 销毁前是否将任务前台移回主屏
 +     */
 +    public static ControlMessage createReleaseVirtualDisplay(long sequence, int displayId, boolean moveTasksToDefaultDisplay) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        dto.setFlags(moveTasksToDefaultDisplay
-+                ? DaemonControlMessage.RELEASE_MOVE_TASKS_TO_DEFAULT
-+                : DaemonControlMessage.RELEASE_KEEP_TASKS);
-+        return envelope(TYPE_RELEASE_VIRTUAL_DISPLAY, dto);
++        return request(TYPE_RELEASE_VIRTUAL_DISPLAY, sequence, dto -> {
++            dto.setDisplayId(displayId);
++            dto.setFlags(moveTasksToDefaultDisplay
++                    ? DaemonControlMessage.RELEASE_MOVE_TASKS_TO_DEFAULT
++                    : DaemonControlMessage.RELEASE_KEEP_TASKS);
++        });
 +    }
 +
 +    public static ControlMessage createResizeVirtualDisplay(long sequence, int displayId, int width, int height, int dpi) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        dto.setWidth(width);
-+        dto.setHeight(height);
-+        dto.setDpi(dpi);
-+        return envelope(TYPE_RESIZE_VIRTUAL_DISPLAY, dto);
++        return request(TYPE_RESIZE_VIRTUAL_DISPLAY, sequence, dto -> {
++            dto.setDisplayId(displayId);
++            dto.setWidth(width);
++            dto.setHeight(height);
++            dto.setDpi(dpi);
++        });
 +    }
 +
 +    public static ControlMessage createStartActivity(long sequence, String packageName, int displayId) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setText(packageName);
-+        dto.setDisplayId(displayId);
-+        return envelope(TYPE_START_ACTIVITY, dto);
++        return request(TYPE_START_ACTIVITY, sequence, dto -> {
++            dto.setText(packageName);
++            dto.setDisplayId(displayId);
++        });
 +    }
 +
 +    public static ControlMessage createGetActiveDisplayIds(long sequence) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        return envelope(TYPE_GET_ACTIVE_DISPLAY_IDS, dto);
++        return request(TYPE_GET_ACTIVE_DISPLAY_IDS, sequence, dto -> { });
 +    }
 +
 +    public static ControlMessage createGetRotation(long sequence, int displayId) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        return envelope(TYPE_GET_ROTATION, dto);
++        return request(TYPE_GET_ROTATION, sequence, dto -> dto.setDisplayId(displayId));
 +    }
 +
 +    public static ControlMessage createFreezeRotation(long sequence, int displayId, int rotation) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        dto.setRotation(rotation);
-+        return envelope(TYPE_FREEZE_ROTATION, dto);
++        return request(TYPE_FREEZE_ROTATION, sequence, dto -> {
++            dto.setDisplayId(displayId);
++            dto.setRotation(rotation);
++        });
 +    }
 +
 +    public static ControlMessage createThawRotation(long sequence, int displayId) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        return envelope(TYPE_THAW_ROTATION, dto);
++        return request(TYPE_THAW_ROTATION, sequence, dto -> dto.setDisplayId(displayId));
 +    }
 +
 +    public static ControlMessage createIsRotationFrozen(long sequence, int displayId) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        return envelope(TYPE_IS_ROTATION_FROZEN, dto);
++        return request(TYPE_IS_ROTATION_FROZEN, sequence, dto -> dto.setDisplayId(displayId));
 +    }
 +
 +    public static ControlMessage createGetActiveDisplayInfos(long sequence) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        return envelope(TYPE_GET_ACTIVE_DISPLAY_INFOS, dto);
++        return request(TYPE_GET_ACTIVE_DISPLAY_INFOS, sequence, dto -> { });
 +    }
 +
 +    public static ControlMessage createExitDaemon(long sequence) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        return envelope(TYPE_EXIT_DAEMON, dto);
++        return request(TYPE_EXIT_DAEMON, sequence, dto -> { });
 +    }
 +
 +    /**
@@ -203,12 +200,11 @@ index 00000000..ca466bce
 +     */
 +    public static ControlMessage createConfigureSession(long sequence, String optionsKv, int rolesMask,
 +                                                        List<TcpDesktopConnection.RoleDisplayKey> rolesEntries) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setOptionsKv(optionsKv != null ? optionsKv : "");
-+        dto.setRolesMask(rolesMask);
-+        dto.setRolesEntries(rolesEntries);
-+        return envelope(TYPE_CONFIGURE_SESSION, dto);
++        return request(TYPE_CONFIGURE_SESSION, sequence, dto -> {
++            dto.setOptionsKv(optionsKv != null ? optionsKv : "");
++            dto.setRolesMask(rolesMask);
++            dto.setRolesEntries(rolesEntries);
++        });
 +    }
 +
 +    public static ControlMessage createConfigureSession(long sequence, String optionsKv, int rolesMask) {
@@ -216,22 +212,15 @@ index 00000000..ca466bce
 +    }
 +
 +    public static ControlMessage createLaunchHome(long sequence, int displayId) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayId(displayId);
-+        return envelope(TYPE_LAUNCH_HOME, dto);
++        return request(TYPE_LAUNCH_HOME, sequence, dto -> dto.setDisplayId(displayId));
 +    }
 +
 +    public static ControlMessage createListApps(long sequence) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        return envelope(TYPE_LIST_APPS, dto);
++        return request(TYPE_LIST_APPS, sequence, dto -> { });
 +    }
 +
 +    public static ControlMessage createPing(long sequence) {
-+        DaemonControlMessage dto = new DaemonControlMessage();
-+        dto.setSequence(sequence);
-+        return envelope(TYPE_PING, dto);
++        return request(TYPE_PING, sequence, dto -> { });
 +    }
 +
 +    // ------------------------------------------------------------------
@@ -239,32 +228,22 @@ index 00000000..ca466bce
 +    // ------------------------------------------------------------------
 +
 +    public static DeviceMessage createGenericResponse(long sequence, int statusCode, int displayId, String responseString) {
-+        DaemonDeviceMessage dto = new DaemonDeviceMessage();
-+        dto.setSequence(sequence);
-+        dto.setStatusCode(statusCode);
-+        dto.setDisplayId(displayId);
-+        dto.setText(responseString);
-+        return envelope(TYPE_RESPONSE_GENERIC, dto);
++        return response(TYPE_RESPONSE_GENERIC, sequence, dto -> {
++            dto.setStatusCode(statusCode);
++            dto.setDisplayId(displayId);
++            dto.setText(responseString);
++        });
 +    }
 +
 +    public static DeviceMessage createActiveDisplaysResponse(long sequence, int[] displayIds) {
-+        DaemonDeviceMessage dto = new DaemonDeviceMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayIds(displayIds);
-+        return envelope(TYPE_RESPONSE_ACTIVE_DISPLAYS, dto);
++        return response(TYPE_RESPONSE_ACTIVE_DISPLAYS, sequence, dto -> dto.setDisplayIds(displayIds));
 +    }
 +
 +    public static DeviceMessage createActiveDisplayInfosResponse(long sequence, DisplayInfo[] infos) {
-+        DaemonDeviceMessage dto = new DaemonDeviceMessage();
-+        dto.setSequence(sequence);
-+        dto.setDisplayInfos(infos);
-+        return envelope(TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS, dto);
++        return response(TYPE_RESPONSE_ACTIVE_DISPLAY_INFOS, sequence, dto -> dto.setDisplayInfos(infos));
 +    }
 +
 +    public static DeviceMessage createAppsListResponse(long sequence, List<DeviceApp> apps) {
-+        DaemonDeviceMessage dto = new DaemonDeviceMessage();
-+        dto.setSequence(sequence);
-+        dto.setApps(apps);
-+        return envelope(TYPE_RESPONSE_APPS_LIST, dto);
++        return response(TYPE_RESPONSE_APPS_LIST, sequence, dto -> dto.setApps(apps));
 +    }
 +}

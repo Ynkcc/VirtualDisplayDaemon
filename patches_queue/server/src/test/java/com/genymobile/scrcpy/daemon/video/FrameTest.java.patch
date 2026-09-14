@@ -1,0 +1,107 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/video/FrameTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/video/FrameTest.java
+new file mode 100644
+index 00000000..a00b06d9
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/video/FrameTest.java
+@@ -0,0 +1,101 @@
++package com.genymobile.scrcpy.daemon.video;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++import java.nio.ByteBuffer;
++
++public class FrameTest {
++
++    private static final int PAYLOAD_SIZE = 1024;
++
++    /**
++     * Drain the pool bucket of {@code expected.length} and report whether {@code expected} became
++     * available again, i.e. whether its reference count dropped to zero.
++     */
++    private static boolean isRecycled(byte[] expected) {
++        for (int i = 0; i < 16; i++) {
++            if (ByteArrayPool.get(expected.length) == expected) {
++                return true;
++            }
++        }
++        return false;
++    }
++
++    private static Frame packetOfSize(int size, boolean keyFrame, boolean config) {
++        ByteBuffer buffer = ByteBuffer.allocate(size);
++        buffer.flip();
++        return Frame.packet(buffer, 0L, config, keyFrame);
++    }
++
++    @Test
++    public void testHeaderAndMetaCarryNoPooledBuffer() {
++        Frame header = Frame.header();
++        Assert.assertNull(header.getData());
++        Assert.assertFalse(header.isDroppable());
++        // retain/release are documented no-ops for non-packet frames: they must not throw.
++        header.retain();
++        header.release();
++
++        Frame meta = Frame.meta(1920, 1080, true);
++        Assert.assertNull(meta.getData());
++        Assert.assertEquals(1920, meta.width);
++        Assert.assertEquals(1080, meta.height);
++        Assert.assertTrue(meta.isClientResize);
++        Assert.assertFalse(meta.isDroppable());
++    }
++
++    @Test
++    public void testPacketCopiesSourceBuffer() {
++        ByteBuffer source = ByteBuffer.allocate(PAYLOAD_SIZE);
++        for (int i = 0; i < PAYLOAD_SIZE; i++) {
++            source.put((byte) i);
++        }
++        source.flip();
++        source.position(8);
++        source.limit(8 + 512);
++
++        Frame frame = Frame.packet(source, 42L, false, true);
++
++        Assert.assertEquals(512, frame.length);
++        // 512 is already a power of two, so the pooled bucket matches the payload exactly.
++        Assert.assertEquals(512, frame.getData().length);
++        Assert.assertEquals(42L, frame.pts);
++        Assert.assertFalse(frame.config);
++        Assert.assertTrue(frame.keyFrame);
++
++        // The frame owns its copy: the encoder reuses its output buffer, so mutating it after
++        // the packet was taken must not change the frame content.
++        source.position(8);
++        source.put((byte) -1);
++        for (int i = 0; i < 512; i++) {
++            Assert.assertEquals((byte) (8 + i), frame.getData()[i]);
++        }
++    }
++
++    @Test
++    public void testRetainReleaseReferenceCount() {
++        ByteBuffer buffer = ByteBuffer.allocate(PAYLOAD_SIZE);
++        buffer.flip();
++        Frame frame = Frame.packet(buffer, 0L, false, true);
++        byte[] pooled = frame.getData();
++
++        Assert.assertFalse(isRecycled(pooled));
++
++        // Fan-out retains once per subscriber; the write loop releases after the write.
++        frame.retain();
++        frame.release();
++        // One reference is still held by the frame itself.
++        Assert.assertFalse(isRecycled(pooled));
++
++        frame.release();
++        Assert.assertTrue(isRecycled(pooled));
++    }
++
++    @Test
++    public void testDroppable() {
++        Assert.assertTrue(packetOfSize(PAYLOAD_SIZE, false, false).isDroppable());
++        Assert.assertFalse(packetOfSize(PAYLOAD_SIZE, true, false).isDroppable());
++        Assert.assertFalse(packetOfSize(PAYLOAD_SIZE, false, true).isDroppable());
++    }
++}

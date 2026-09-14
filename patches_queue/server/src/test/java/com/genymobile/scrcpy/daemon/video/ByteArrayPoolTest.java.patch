@@ -1,0 +1,79 @@
+diff --git a/server/src/test/java/com/genymobile/scrcpy/daemon/video/ByteArrayPoolTest.java b/server/src/test/java/com/genymobile/scrcpy/daemon/video/ByteArrayPoolTest.java
+new file mode 100644
+index 00000000..078c8e14
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/daemon/video/ByteArrayPoolTest.java
+@@ -0,0 +1,73 @@
++package com.genymobile.scrcpy.daemon.video;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++public class ByteArrayPoolTest {
++
++    private static final int SIZE = 512;
++    /** Mirrors ByteArrayPool.MAX_POOL_SIZE_PER_BUCKET. */
++    private static final int POOL_MAX = 8;
++
++    private static void drainBucket(int size) {
++        // Each get() pops one entry (or allocates a fresh one), so a few dozen calls
++        // leave the bucket empty regardless of what earlier tests recycled into it.
++        for (int i = 0; i < 4 * POOL_MAX; i++) {
++            ByteArrayPool.get(size);
++        }
++    }
++
++    private static boolean isPowerOfTwo(int value) {
++        return value > 0 && (value & (value - 1)) == 0;
++    }
++
++    @Test
++    public void testGetReturnsPowerOfTwoAtLeastRequested() {
++        int[] sizes = {1, 3, 511, 512, 513, 1000};
++        for (int size : sizes) {
++            byte[] array = ByteArrayPool.get(size);
++            Assert.assertTrue("length " + array.length + " < requested " + size, array.length >= size);
++            Assert.assertTrue("length " + array.length + " is not a power of two", isPowerOfTwo(array.length));
++        }
++    }
++
++    @Test
++    public void testGetWithoutRecycleReturnsDistinctArrays() {
++        drainBucket(SIZE);
++        Assert.assertNotSame(ByteArrayPool.get(SIZE), ByteArrayPool.get(SIZE));
++    }
++
++    @Test
++    public void testRecycledArrayIsReused() {
++        drainBucket(SIZE);
++        byte[] array = new byte[SIZE];
++        ByteArrayPool.recycle(array);
++        Assert.assertSame(array, ByteArrayPool.get(SIZE));
++    }
++
++    @Test
++    public void testNonPowerOfTwoArraysAreNotPooled() {
++        drainBucket(SIZE);
++        byte[] odd = new byte[1000];
++        ByteArrayPool.recycle(odd);
++        byte[] array = ByteArrayPool.get(1000);
++        Assert.assertNotSame(odd, array);
++        Assert.assertEquals(1024, array.length);
++    }
++
++    @Test
++    public void testBucketCapacityIsCapped() {
++        drainBucket(SIZE);
++        java.util.Set<byte[]> recycled = new java.util.HashSet<>();
++        for (int i = 0; i < POOL_MAX + 1; i++) {
++            byte[] array = new byte[SIZE];
++            recycled.add(array);
++            ByteArrayPool.recycle(array);
++        }
++        // Exactly POOL_MAX arrays are retained (FIFO): the (POOL_MAX+1)-th one was dropped.
++        for (int i = 0; i < POOL_MAX; i++) {
++            Assert.assertTrue(recycled.contains(ByteArrayPool.get(SIZE)));
++        }
++        Assert.assertFalse(recycled.contains(ByteArrayPool.get(SIZE)));
++    }
++}
